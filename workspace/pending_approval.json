@@ -1,0 +1,5 @@
+{
+  "status": "pending",
+  "command": "uv add numpy",
+  "reason": "Agent requires numpy for mathematical operations"
+}
