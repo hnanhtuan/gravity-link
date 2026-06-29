@@ -5,8 +5,9 @@ import asyncio
 import logging
 from dotenv import load_dotenv
 
-# Load environment variables from .env
-load_dotenv()
+# Load environment variables from .env explicitly
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(project_root, ".env"))
 import subprocess
 from contextlib import asynccontextmanager
 
@@ -189,6 +190,15 @@ app.add_middleware(
 async def health_check():
     """Returns server status and version for client discovery."""
     return {"status": "online", "version": "1.0.0"}
+
+@app.get("/api/debug/apikey")
+async def api_debug_apikey():
+    import os
+    return {
+        "key_exists": "GEMINI_API_KEY" in os.environ,
+        "key_length": len(os.environ.get("GEMINI_API_KEY", "")),
+        "key_preview": os.environ.get("GEMINI_API_KEY", "")[:8]
+    }
 
 @app.get("/api/workspace")
 async def api_get_workspace():
@@ -441,6 +451,28 @@ def safe_brain_join(conv_id: str) -> str:
         raise ValueError("Access denied")
     return joined
 
+def create_empty_conversation_db(conv_id: str):
+    """Creates a pre-initialized SQLite database file for the conversation to satisfy the local agent backend check."""
+    db_path = os.path.join(BRAIN_DIR, f"{conv_id}.db")
+    if os.path.exists(db_path):
+        return
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_path)
+        cur = conn.cursor()
+        cur.execute("CREATE TABLE IF NOT EXISTS `trajectory_meta` (`trajectory_id` text,`cascade_id` text,`trajectory_type` integer,`source` integer,PRIMARY KEY (`trajectory_id`))")
+        cur.execute("INSERT OR IGNORE INTO trajectory_meta VALUES (?, ?, 4, 1)", (conv_id, conv_id))
+        cur.execute("CREATE TABLE IF NOT EXISTS `steps` (`idx` integer,`step_type` integer NOT NULL DEFAULT 0,`status` integer NOT NULL DEFAULT 0,`has_subtrajectory` numeric NOT NULL DEFAULT false,`metadata` blob,`error_details` blob,`permissions` blob,`task_details` blob,`render_info` blob,`step_payload` blob,`step_format` integer NOT NULL DEFAULT 0,PRIMARY KEY (`idx`))")
+        cur.execute("CREATE TABLE IF NOT EXISTS `gen_metadata` (`idx` integer,`data` blob,`size` integer NOT NULL DEFAULT 0,PRIMARY KEY (`idx`))")
+        cur.execute("CREATE TABLE IF NOT EXISTS `executor_metadata` (`idx` integer,`data` blob,PRIMARY KEY (`idx`))")
+        cur.execute("CREATE TABLE IF NOT EXISTS `parent_references` (`idx` integer,`data` blob,PRIMARY KEY (`idx`))")
+        cur.execute("CREATE TABLE IF NOT EXISTS `trajectory_metadata_blob` (`id` text DEFAULT 'main',`data` blob,PRIMARY KEY (`id`))")
+        cur.execute("CREATE TABLE IF NOT EXISTS `battle_mode_infos` (`idx` integer,`data` blob,PRIMARY KEY (`idx`))")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error pre-creating conversation DB for {conv_id}: {e}")
+
 def safe_artifact_path(conv_dir: str, name: str) -> str:
     conv_dir = os.path.abspath(conv_dir)
     artifact_path = os.path.abspath(os.path.join(conv_dir, name))
@@ -518,6 +550,8 @@ async def api_post_conversation_new():
         # Write an empty file to initialize the transcript
         with open(transcript_path, "w", encoding="utf-8") as f:
             f.write("")
+            
+        create_empty_conversation_db(new_id)
             
         return {"status": "success", "conversation_id": new_id}
     except Exception as e:
@@ -722,6 +756,7 @@ async def api_post_conversation_message(conv_id: str, request: MessageSendReques
             # Active agent session mode: let the SDK handle message execution and appending
             if sdk_wrapper.agent_state != "Idle":
                 return {"status": "error", "message": "Agent is currently busy"}
+            create_empty_conversation_db(conv_id)
             sdk_wrapper.spawn_task(request.content, conversation_id=conv_id)
             return {"status": "success"}
         else:
