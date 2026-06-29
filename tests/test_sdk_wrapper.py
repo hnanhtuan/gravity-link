@@ -149,3 +149,19 @@ async def test_agent_endpoints():
                 assert res.status_code == 200
                 assert res.json() == {"status": "success", "message": "Task cancelled successfully"}
                 mock_cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_accept_changes_auto_approves_review():
+    """Verify that accept-changes auto-approves pending agent reviews."""
+    # Set wrapper to awaiting review state
+    sdk_wrapper.agent_state = "Awaiting Review"
+    sdk_wrapper.current_artifact = {"name": "walkthrough.md", "path": "/workspace/walkthrough.md"}
+    
+    with patch.object(sdk_wrapper, "submit_review") as mock_submit:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            # Call accept-changes
+            response = await ac.post("/api/workspace/accept-changes")
+            # Verify submit_review was called automatically
+            mock_submit.assert_called_once_with("approved")
+

@@ -599,3 +599,32 @@ async def test_git_status_api(tmp_path):
         assert data["is_git"] is True
 
 
+@pytest.mark.asyncio
+async def test_accept_changes_auto_approves(tmp_path):
+    """Verify that accept-changes auto-approves pending command approvals."""
+    workspace_path = str(tmp_path)
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # 1. Select the workspace directory
+        response = await ac.post("/workspace/select", json={"path": workspace_path})
+        assert response.status_code == 200
+        
+        # 2. Submit approval request via POST /approval/request (makes it pending)
+        approval_payload = {"command": "echo test-cmd", "reason": "pytest run"}
+        response = await ac.post("/approval/request", json=approval_payload)
+        assert response.status_code == 200
+        assert response.json() == {"status": "pending"}
+        
+        # Verify status is pending
+        response = await ac.get("/approval/status")
+        assert response.json() == {"status": "pending", "command": "echo test-cmd"}
+        
+        # 3. Call accept-changes
+        response = await ac.post("/api/workspace/accept-changes")
+        
+        # 4. Verify that approval status is now approved
+        response = await ac.get("/approval/status")
+        assert response.json() == {"status": "approved", "command": "echo test-cmd"}
+
+
+

@@ -834,7 +834,7 @@ async function initWorkspaceSelector() {
 
     // Periodically poll git status and do initial check
     checkGitChangesStatus();
-    setInterval(checkGitChangesStatus, 4000);
+    setInterval(checkGitChangesStatus, 2000);
 
     // Handle refresh buttons
     if (refreshStateBtn) {

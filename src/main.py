@@ -331,12 +331,28 @@ async def api_workspace_accept_changes():
         if not os.path.exists(workspace_dir):
             return {"status": "error", "message": "Active workspace directory does not exist."}
 
+        # 1. If there's a pending command approval in pending_approval.json, auto-confirm it
+        current_approval = await get_pending_approval()
+        if current_approval.get("status") == "pending":
+            await set_approval_status("approved")
+            payload = await get_pending_approval()
+            await state_manager_ws.broadcast(json.dumps({"file": "pending_approval.json", "data": payload}))
+            logger.info("Auto-approved pending command approval because changes were accepted.")
+
+        # 2. If the agent is awaiting review, submit review as approved
+        if sdk_wrapper.agent_state == "Awaiting Review":
+            try:
+                sdk_wrapper.submit_review("approved")
+                logger.info("Auto-approved pending agent artifact review because changes were accepted.")
+            except Exception as e:
+                logger.error(f"Failed to auto-approve agent review: {e}")
+
         # Check if it is a git repository
         git_dir = os.path.join(workspace_dir, ".git")
         if not os.path.exists(git_dir):
             return {"status": "error", "message": "Active workspace is not a Git repository. Cannot accept changes."}
 
-        # 1. Run git status --porcelain to see if there are any changes
+        # 3. Run git status --porcelain to see if there are any changes
         proc_status = await asyncio.create_subprocess_exec(
             "git", "status", "--porcelain",
             cwd=workspace_dir,
@@ -877,6 +893,9 @@ async def api_submit_review(request: ReviewSubmitRequest):
     """Approve or reject/give feedback for the pending artifact."""
     try:
         sdk_wrapper.submit_review(request.decision, request.feedback)
+        await state_manager_ws.broadcast(
+            json.dumps({"file": "agent_review.json", "data": {"decision": request.decision}})
+        )
         return {"status": "success", "message": f"Review decision '{request.decision}' submitted"}
     except ValueError as e:
         return {"status": "error", "message": str(e)}
