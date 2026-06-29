@@ -1077,6 +1077,20 @@ async function initConversationTab() {
         }
     });
 
+    // 4.5. Action chips listeners
+    document.querySelectorAll('.action-chip-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const action = btn.getAttribute('data-action');
+            if (action) {
+                chatMessageInput.value = action;
+                chatMessageInput.focus();
+                // Place the cursor at the end of the text input
+                const len = chatMessageInput.value.length;
+                chatMessageInput.setSelectionRange(len, len);
+            }
+        });
+    });
+
     // 5. New Chat listener
     newChatBtn.addEventListener('click', async () => {
         try {

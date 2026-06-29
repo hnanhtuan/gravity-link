@@ -135,7 +135,15 @@
                     <button id="accept-changes-btn" class="workspace-btn">Accept Changes</button>
                 </div>
                 <!-- Chat Message Sender Input bar -->
-                <div class="workspace-selector-box chat-input-bar" style="border-top: 1px solid var(--border-muted); padding: 4px;">
+                <div class="workspace-selector-box chat-input-bar" style="border-top: 1px solid var(--border-muted); padding: 4px; display: flex; flex-direction: column; gap: 4px;">
+                    <!-- Action Row -->
+                    <div class="chat-actions-row">
+                        <button class="action-chip-btn" data-action="/grill-me" type="button">💬 /grill-me</button>
+                        <button class="action-chip-btn" data-action="/goal " type="button">🎯 /goal</button>
+                        <button class="action-chip-btn" data-action="/schedule " type="button">⏰ /schedule</button>
+                        <button class="action-chip-btn" data-action="/learn " type="button">🎓 /learn</button>
+                        <button class="action-chip-btn" data-action="/teamwork-preview" type="button">👥 /teamwork-preview</button>
+                    </div>
                     <div class="workspace-input-group" style="display: flex; gap: 4px; width: 100%;">
                         <input type="text" id="chat-message-input" class="workspace-input" placeholder="Type a message..." style="padding: 4px; font-size: 0.8rem; flex: 1; min-width: 0;" />
                         <button id="chat-send-btn" class="workspace-btn" style="height: 30px; font-size: 0.75rem; padding: 0 10px; flex: 0 0 auto;">Send</button>

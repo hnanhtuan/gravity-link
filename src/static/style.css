@@ -1533,4 +1533,61 @@ body.light-theme .accept-changes-banner button {
     color: #ffffff;
 }
 
+/* Quick Actions Chips */
+.chat-actions-row {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 2px 4px 6px 4px;
+    scrollbar-width: none; /* Firefox */
+}
+
+.chat-actions-row::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
+}
+
+.action-chip-btn {
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    padding: 4px 8px;
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-muted);
+    color: var(--text-secondary);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.action-chip-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--border-color);
+}
+
+.action-chip-btn:active {
+    background-color: var(--active-bg);
+    color: var(--active-text);
+    border-color: var(--border-color);
+}
+
+body.light-theme .action-chip-btn {
+    background-color: #f2f2f7;
+    border-color: #d1d1d6;
+    color: #48484a;
+}
+
+body.light-theme .action-chip-btn:hover {
+    color: #000000;
+    border-color: #8e8e93;
+}
+
+body.light-theme .action-chip-btn:active {
+    background-color: #000000;
+    color: #ffffff;
+    border-color: #000000;
+}
+
+
 
