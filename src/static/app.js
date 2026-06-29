@@ -10,6 +10,7 @@ let pendingWorkspacePath = '';
 let currentFileExplorerPath = '';
 let ctrlActive = false;
 let openFilePath = '';
+let lastCopiedCodeBlockText = '';
 
 // Conversation & Artifacts state
 let activeConversationId = '';
@@ -43,7 +44,17 @@ function configureMarkdownRenderer() {
                     }
                 }
 
-                return `<pre><code class="hljs language-${escapeHtml(validLang)}">${highlighted}</code></pre>`;
+                return `
+                    <div class="code-block-wrapper" tabindex="0">
+                        <button class="btn-secondary icon-btn code-copy-btn" type="button" aria-label="Copy code block" title="Copy code">
+                            <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <rect x="8" y="8" width="12" height="12" rx="2"></rect>
+                                <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
+                            </svg>
+                        </button>
+                        <pre><code class="hljs language-${escapeHtml(validLang)}">${highlighted}</code></pre>
+                    </div>
+                `;
             },
             blockquote(quoteOrToken) {
                 const quote = normalizeBlockquoteHtml(quoteOrToken);
@@ -123,6 +134,7 @@ function renderBasicMarkdown(markdownText) {
 // DOM Elements
 const wsStatusDot = document.getElementById('ws-status-dot');
 const wsStatusText = document.getElementById('ws-status-text');
+const terminalContainer = document.getElementById('terminal-container');
 const workspaceRecentSelect = document.getElementById('workspace-recent-select');
 const workspaceRecentOptions = document.getElementById('workspace-recent-options');
 const appChromeToggle = document.getElementById('app-chrome-toggle');
@@ -198,7 +210,110 @@ document.addEventListener('DOMContentLoaded', () => {
     initEditor();
     initConversationTab();
     initArtifactViewer();
+    initMarkdownCodeCopy();
 });
+
+function initMarkdownCodeCopy() {
+    document.addEventListener('click', async (e) => {
+        const target = e.target instanceof Element ? e.target : null;
+        if (!target) return;
+
+        const copyBtn = target.closest('.code-copy-btn');
+        const codeBlock = target.closest('.code-block-wrapper');
+
+        if (!codeBlock) {
+            clearSelectedCodeBlocks();
+            return;
+        }
+
+        selectCodeBlock(codeBlock);
+
+        if (copyBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            await copyCodeBlockText(codeBlock, copyBtn);
+        }
+    });
+
+    document.addEventListener('copy', rememberCopiedCodeBlockSelection);
+}
+
+function rememberCopiedCodeBlockSelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    const anchor = selection.anchorNode && selection.anchorNode.nodeType === Node.TEXT_NODE
+        ? selection.anchorNode.parentElement
+        : selection.anchorNode;
+    const codeBlock = anchor instanceof Element ? anchor.closest('.code-block-wrapper') : null;
+    if (!codeBlock) return;
+
+    lastCopiedCodeBlockText = selection.toString() || codeBlock.querySelector('pre code')?.textContent || '';
+}
+
+function clearSelectedCodeBlocks() {
+    document.querySelectorAll('.code-block-wrapper.selected').forEach((block) => {
+        block.classList.remove('selected');
+    });
+}
+
+function selectCodeBlock(codeBlock) {
+    document.querySelectorAll('.code-block-wrapper.selected').forEach((block) => {
+        if (block !== codeBlock) {
+            block.classList.remove('selected');
+        }
+    });
+    codeBlock.classList.add('selected');
+}
+
+async function copyCodeBlockText(codeBlock, button) {
+    const code = codeBlock.querySelector('pre code');
+    if (!code) return;
+
+    const text = code.textContent || '';
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+        } else {
+            fallbackCopyText(text);
+        }
+        lastCopiedCodeBlockText = text;
+        showCopyButtonStatus(button, 'Copied');
+    } catch (e) {
+        console.error('Unable to copy code block:', e);
+        showCopyButtonStatus(button, 'Failed');
+    }
+}
+
+function fallbackCopyText(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textarea);
+}
+
+function showCopyButtonStatus(button, label) {
+    const originalLabel = button.dataset.defaultLabel || button.getAttribute('aria-label') || 'Copy code block';
+    const originalTitle = button.dataset.defaultTitle || button.getAttribute('title') || 'Copy code';
+
+    button.dataset.defaultLabel = originalLabel;
+    button.dataset.defaultTitle = originalTitle;
+
+    button.classList.add('copied');
+    button.setAttribute('aria-label', label);
+    button.setAttribute('title', label);
+
+    window.setTimeout(() => {
+        button.classList.remove('copied');
+        button.setAttribute('aria-label', originalLabel);
+        button.setAttribute('title', originalTitle);
+    }, 1200);
+}
 
 // 1. Tab Navigation
 function initTabs() {
@@ -326,9 +441,9 @@ function initTerminal() {
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     
-    const container = document.getElementById('terminal-container');
-    term.open(container);
+    term.open(terminalContainer);
     fitAddon.fit();
+    terminalContainer.addEventListener('paste', handleTerminalPaste, true);
 
     // Monitor resize
     window.addEventListener('resize', () => {
@@ -354,6 +469,36 @@ function initTerminal() {
             sendTerminalData(data);
         }
     });
+}
+
+function handleTerminalPaste(e) {
+    const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+    if (!text) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    pasteTextToTerminal(text);
+}
+
+async function pasteClipboardToTerminal() {
+    try {
+        if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
+            pasteTextToTerminal(lastCopiedCodeBlockText);
+            return;
+        }
+
+        const text = await navigator.clipboard.readText();
+        pasteTextToTerminal(text || lastCopiedCodeBlockText);
+    } catch (e) {
+        console.error('Unable to read clipboard for terminal paste:', e);
+        pasteTextToTerminal(lastCopiedCodeBlockText);
+    }
+}
+
+function pasteTextToTerminal(text) {
+    if (!text) return;
+    term.focus();
+    sendTerminalData(text);
 }
 
 function sendTerminalData(data) {
@@ -517,8 +662,13 @@ function initKeypad() {
                 sendTerminalData('\x1b[D');
             } else if (action === 'ArrowRight') {
                 sendTerminalData('\x1b[C');
+            } else if (action === 'Paste') {
+                pasteClipboardToTerminal();
             } else if (action === 'Clear') {
                 term.clear();
+            }
+            if (action !== 'Paste') {
+                term.focus();
             }
         });
     });

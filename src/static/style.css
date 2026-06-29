@@ -645,9 +645,22 @@ nav.tab-bar {
     min-height: 0;
 }
 
+#conversation-tab .section-box {
+    border: none;
+    background-color: transparent;
+}
+
+#conversation-tab .conversation-session-bar,
+#conversation-tab .chat-input-bar {
+    border-color: transparent !important;
+    background-color: transparent;
+}
+
 #conversation-tab .section-title {
     padding: 3px 6px;
     min-height: 24px;
+    border-bottom: none;
+    background-color: transparent;
     font-size: 0.68rem;
     letter-spacing: 0.04em;
 }
@@ -659,7 +672,9 @@ nav.tab-bar {
 #conversation-tab .section-title .icon-btn {
     width: 22px;
     height: 22px;
+    border-color: transparent;
     border-radius: 3px;
+    background-color: transparent;
 }
 
 #conversation-tab .section-title .action-icon {
@@ -880,6 +895,46 @@ nav.tab-bar {
 }
 
 /* Pre / Code block overrides */
+.code-block-wrapper {
+    position: relative;
+    margin-bottom: 14px;
+}
+
+.code-block-wrapper:focus {
+    outline: none;
+}
+
+.code-block-wrapper.selected pre {
+    border-color: var(--border-color);
+}
+
+.code-block-wrapper .code-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+    width: 26px;
+    height: 26px;
+    opacity: 0;
+    pointer-events: none;
+    background-color: #151515;
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+    transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.code-block-wrapper.selected .code-copy-btn,
+.code-block-wrapper:focus-within .code-copy-btn {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.code-block-wrapper .code-copy-btn:active,
+.code-block-wrapper .code-copy-btn.copied {
+    color: var(--active-text);
+    border-color: var(--active-text);
+}
+
 .markdown-body pre {
     background-color: #0d0d0d;
     border: 1px solid var(--border-muted);
@@ -889,6 +944,11 @@ nav.tab-bar {
     font-family: var(--font-mono);
     font-size: 0.8rem;
     margin-bottom: 14px;
+}
+
+.markdown-body .code-block-wrapper pre {
+    margin-bottom: 0;
+    padding-right: 44px;
 }
 
 .markdown-body pre::-webkit-scrollbar {
@@ -1087,6 +1147,14 @@ nav.tab-bar {
     background-color: #050505;
 }
 
+.chat-bubble .markdown-body .code-block-wrapper {
+    margin-bottom: 8px;
+}
+
+.chat-bubble .markdown-body .code-block-wrapper pre {
+    margin-bottom: 0;
+}
+
 #transcript-chat-display {
     background-color: var(--bg-color);
 }
@@ -1242,6 +1310,22 @@ body.light-theme .markdown-body {
 
 body.light-theme .markdown-body pre {
     background-color: #f6f8fa;
+}
+
+body.light-theme .code-block-wrapper .code-copy-btn {
+    background-color: #ffffff;
+    border-color: rgba(27,31,36,0.2);
+    color: #57606a;
+}
+
+body.light-theme .code-block-wrapper.selected pre {
+    border-color: rgba(27,31,36,0.35);
+}
+
+body.light-theme .code-block-wrapper .code-copy-btn:active,
+body.light-theme .code-block-wrapper .code-copy-btn.copied {
+    color: #0969da;
+    border-color: #0969da;
 }
 
 body.light-theme .markdown-body pre::-webkit-scrollbar-track {
