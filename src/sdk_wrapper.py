@@ -125,7 +125,7 @@ class AntigravitySDKWrapper:
         """Asynchronous execution loop for the Antigravity Agent."""
         try:
             api_key = os.environ.get("GEMINI_API_KEY")
-            from src.main import BRAIN_DIR
+            from src.dependencies import BRAIN_DIR
             app_data_dir = os.path.dirname(os.path.abspath(BRAIN_DIR))
             config = LocalAgentConfig(
                 api_key=api_key,
@@ -168,7 +168,7 @@ class AntigravitySDKWrapper:
                         await self.broadcast_event(payload)
                         # Trigger a transcript update on the state WebSocket
                         try:
-                            from src.main import state_manager_ws
+                            from src.dependencies import state_manager_ws
                             await state_manager_ws.broadcast(
                                 json.dumps({"file": "transcript.jsonl", "data": {"refresh": True}})
                             )
@@ -180,7 +180,7 @@ class AntigravitySDKWrapper:
                 await self.broadcast_event({"type": "finished", "content": final_text})
                 # Final broadcast for finishing
                 try:
-                    from src.main import state_manager_ws
+                    from src.dependencies import state_manager_ws
                     await state_manager_ws.broadcast(
                         json.dumps({"file": "transcript.jsonl", "data": {"refresh": True}})
                     )

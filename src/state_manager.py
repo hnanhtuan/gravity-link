@@ -7,55 +7,69 @@ DEFAULT_WORKSPACE_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "workspace")
 )
 
-active_workspace_dir = DEFAULT_WORKSPACE_DIR
-STATE_FILE = os.path.join(active_workspace_dir, "workspace_state.json")
-APPROVAL_FILE = os.path.join(active_workspace_dir, "pending_approval.json")
+class WorkspaceConfig:
+    """Manages active workspace directory and paths for state/approval files dynamically."""
+    
+    def __init__(self):
+        self._active_workspace_dir = DEFAULT_WORKSPACE_DIR
+
+    @property
+    def active_workspace_dir(self) -> str:
+        return self._active_workspace_dir
+
+    @property
+    def state_file(self) -> str:
+        if self._active_workspace_dir == DEFAULT_WORKSPACE_DIR:
+            return os.path.join(self._active_workspace_dir, "workspace_state.json")
+        return os.path.join(self._active_workspace_dir, ".gravity_link", "workspace_state.json")
+
+    @property
+    def approval_file(self) -> str:
+        if self._active_workspace_dir == DEFAULT_WORKSPACE_DIR:
+            return os.path.join(self._active_workspace_dir, "pending_approval.json")
+        return os.path.join(self._active_workspace_dir, ".gravity_link", "pending_approval.json")
+
+    def set_active_workspace(self, path: str) -> None:
+        if path == DEFAULT_WORKSPACE_DIR:
+            self._active_workspace_dir = path
+        else:
+            self._active_workspace_dir = os.path.abspath(path)
+            # Ensure target folder exists
+            target_dir = os.path.join(self._active_workspace_dir, ".gravity_link")
+            os.makedirs(target_dir, exist_ok=True)
+            
+            # Populate initial files if they do not exist
+            state_f = self.state_file
+            appr_f = self.approval_file
+            if not os.path.exists(state_f):
+                with open(state_f, "w", encoding="utf-8") as f:
+                    f.write("{}")
+            if not os.path.exists(appr_f):
+                with open(appr_f, "w", encoding="utf-8") as f:
+                    f.write('{"status": "idle"}')
+
+_config = WorkspaceConfig()
 
 # Async locks to serialize writes to state and approval files
 _state_lock = asyncio.Lock()
 _approval_lock = asyncio.Lock()
 
 def set_active_workspace(path: str) -> None:
-    """Sets the active workspace path and updates file references dynamically.
-    
-    If the path points to the default workspace, we read/write directly in workspace/.
-    Otherwise, we store state files in project_root/.gravity_link/ to avoid polluting the workspace root.
-    """
-    global active_workspace_dir, STATE_FILE, APPROVAL_FILE
-    
-    if path == DEFAULT_WORKSPACE_DIR:
-        active_workspace_dir = path
-        STATE_FILE = os.path.join(active_workspace_dir, "workspace_state.json")
-        APPROVAL_FILE = os.path.join(active_workspace_dir, "pending_approval.json")
-    else:
-        active_workspace_dir = os.path.abspath(path)
-        target_dir = os.path.join(active_workspace_dir, ".gravity_link")
-        
-        # Ensure target folder exists
-        os.makedirs(target_dir, exist_ok=True)
-        
-        STATE_FILE = os.path.join(target_dir, "workspace_state.json")
-        APPROVAL_FILE = os.path.join(target_dir, "pending_approval.json")
-        
-        # Populate initial files if they do not exist
-        if not os.path.exists(STATE_FILE):
-            with open(STATE_FILE, "w", encoding="utf-8") as f:
-                f.write("{}")
-        if not os.path.exists(APPROVAL_FILE):
-            with open(APPROVAL_FILE, "w", encoding="utf-8") as f:
-                f.write('{"status": "idle"}')
+    """Sets the active workspace path and updates file references dynamically."""
+    _config.set_active_workspace(path)
+
+def __getattr__(name: str) -> Any:
+    """Dynamically resolve deprecated/legacy global variables for backwards compatibility."""
+    if name == "active_workspace_dir":
+        return _config.active_workspace_dir
+    if name == "STATE_FILE":
+        return _config.state_file
+    if name == "APPROVAL_FILE":
+        return _config.approval_file
+    raise AttributeError(f"module {__name__} has no attribute {name}")
 
 async def read_json_file(file_path: str, max_retries: int = 5, retry_delay: float = 0.1) -> Dict[str, Any]:
-    """Reads a JSON file with retries to handle concurrency/locking issues.
-    
-    Args:
-        file_path: Path to the JSON file to read.
-        max_retries: Maximum number of retries upon read permission or decoding failure.
-        retry_delay: Delay in seconds between retries.
-        
-    Returns:
-        The decoded JSON dictionary.
-    """
+    """Reads a JSON file with retries to handle concurrency/locking issues."""
     for attempt in range(max_retries):
         try:
             if not os.path.exists(file_path):
@@ -72,13 +86,7 @@ async def read_json_file(file_path: str, max_retries: int = 5, retry_delay: floa
     return {}
 
 async def write_json_file(file_path: str, data: Dict[str, Any], lock: asyncio.Lock) -> None:
-    """Writes a JSON file atomically using a lock and a temporary file.
-    
-    Args:
-        file_path: Path to the JSON file to write.
-        data: The dictionary data to write.
-        lock: The asyncio.Lock to acquire.
-    """
+    """Writes a JSON file atomically using a lock and a temporary file."""
     async with lock:
         temp_file = f"{file_path}.tmp"
         try:
@@ -98,43 +106,24 @@ async def write_json_file(file_path: str, data: Dict[str, Any], lock: asyncio.Lo
             raise e
 
 async def get_state() -> Dict[str, Any]:
-    """Retrieves the current workspace state.
-    
-    Returns:
-        Workspace state dictionary.
-    """
-    return await read_json_file(STATE_FILE)
+    """Retrieves the current workspace state."""
+    return await read_json_file(_config.state_file)
 
 async def update_state(data: Dict[str, Any]) -> None:
-    """Updates the workspace state.
-    
-    Args:
-        data: The workspace state data dictionary.
-    """
-    await write_json_file(STATE_FILE, data, _state_lock)
+    """Updates the workspace state."""
+    await write_json_file(_config.state_file, data, _state_lock)
 
 async def get_pending_approval() -> Dict[str, Any]:
-    """Retrieves the pending approval state.
-    
-    Returns:
-        Pending approval state dictionary.
-    """
-    return await read_json_file(APPROVAL_FILE)
+    """Retrieves the pending approval state."""
+    return await read_json_file(_config.approval_file)
 
 async def update_pending_approval(data: Dict[str, Any]) -> None:
-    """Updates the pending approval state.
-    
-    Args:
-        data: The pending approval data dictionary.
-    """
-    await write_json_file(APPROVAL_FILE, data, _approval_lock)
+    """Updates the pending approval state."""
+    await write_json_file(_config.approval_file, data, _approval_lock)
 
 async def set_approval_status(status: str) -> None:
-    """Sets the approval status in pending_approval.json.
-    
-    Args:
-        status: The new status string (e.g. "approved", "pending", "idle").
-    """
+    """Sets the approval status in pending_approval.json."""
     data = await get_pending_approval()
     data["status"] = status
     await update_pending_approval(data)
+

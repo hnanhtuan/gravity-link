@@ -1,0 +1,36 @@
+/* Gravity Link Mobile Theme: Minimal & High-Contrast (Black, White, Gray) */
+
+:root {
+    --bg-color: #000000;
+    --card-bg: #121212;
+    --text-primary: #ffffff;
+    --text-secondary: #aaaaaa;
+    --border-color: #ffffff;
+    --border-muted: #444444;
+    --accent-color: #ffffff;
+    --active-bg: #ffffff;
+    --active-text: #000000;
+    --terminal-bg: #000000;
+    --terminal-keypad-bg: #121212;
+    --keypad-btn-bg: #000000;
+    --keypad-btn-text: #ffffff;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: SFMono-Regular, Consolas, "Liberation Mono", Menlo, Courier, monospace;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
