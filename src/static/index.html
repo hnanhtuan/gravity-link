@@ -6,14 +6,19 @@
     <title>Gravity Link - Mobile Workspace</title>
     <!-- xterm.css from CDN -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+    <!-- Highlight.js theme CSS -->
+    <link id="hljs-theme-stylesheet" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
     <header>
         <h1>Gravity Link</h1>
-        <div class="status-indicator">
-            <span id="ws-status-dot" class="status-dot"></span>
-            <span id="ws-status-text">Disconnected</span>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <button id="theme-toggle-btn" class="theme-btn" style="background: none; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; font-size: 0.7rem; font-family: var(--font-sans); cursor: pointer; text-transform: uppercase; font-weight: bold; border-radius: 3px; outline: none; -webkit-tap-highlight-color: transparent;">Light Mode</button>
+            <div class="status-indicator">
+                <span id="ws-status-dot" class="status-dot"></span>
+                <span id="ws-status-text">Disconnected</span>
+            </div>
         </div>
     </header>
 
@@ -64,28 +69,17 @@
         <!-- Tab 3: Conversation & Tasks (New) -->
         <div id="conversation-tab" class="tab-view">
             <!-- Dropdown selector for conversations -->
-            <div class="workspace-selector-box" style="border-bottom: 1px solid var(--border-muted); margin-bottom: 12px; padding: 4px 8px;">
-                <div class="workspace-input-group">
-                    <label for="conversation-select" style="font-size: 0.75rem; text-transform: uppercase; display: flex; align-items: center; font-weight: bold; margin-right: 8px;">Chat Session:</label>
-                    <select id="conversation-select" class="workspace-input" style="padding: 4px; font-size: 0.75rem; cursor: pointer; flex: 1;">
+            <div class="workspace-selector-box" style="border-bottom: 1px solid var(--border-muted); margin-bottom: 12px; padding: 4px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <div class="workspace-input-group" style="display: flex; flex: 1; margin: 0;">
+                    <label for="conversation-select" style="font-size: 0.75rem; text-transform: uppercase; display: flex; align-items: center; font-weight: bold; margin-right: 8px; white-space: nowrap;">Chat Session:</label>
+                    <select id="conversation-select" class="workspace-input" style="padding: 4px; font-size: 0.75rem; cursor: pointer; flex: 1; min-width: 0;">
                         <option value="">Loading conversations...</option>
                     </select>
                 </div>
+                <button id="new-chat-btn" class="workspace-btn" style="height: 28px; font-size: 0.7rem; padding: 0 10px; white-space: nowrap;">+ New</button>
             </div>
 
-            <!-- Background Commands / Tasks Section -->
-            <div class="section-box" style="max-height: 35%; margin-bottom: 12px;">
-                <div class="section-title">
-                    <span>Background Commands</span>
-                    <button id="refresh-commands-btn" class="btn-secondary" style="font-size: 0.65rem; padding: 2px 6px; height: auto;">Refresh</button>
-                </div>
-                <div class="section-content" style="padding: 0;">
-                    <ul id="commands-list-display" class="file-list">
-                        <!-- Populated dynamically -->
-                        <li class="idle-state" style="padding: 12px 8px; font-size: 0.8rem;">No active processes running.</li>
-                    </ul>
-                </div>
-            </div>
+
 
             <!-- Conversation Transcript Chat History -->
             <div class="section-box" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
@@ -93,12 +87,12 @@
                     <span>Conversation Log</span>
                     <button id="refresh-transcript-btn" class="btn-secondary" style="font-size: 0.65rem; padding: 2px 6px; height: auto;">Refresh</button>
                 </div>
-                <div id="transcript-chat-display" class="section-content" style="background-color: #000; padding: 12px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex: 1; min-height: 220px; max-height: 45vh;">
+                <div id="transcript-chat-display" class="section-content" style="padding: 12px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex: 1; min-height: 220px; max-height: 45vh;">
                     <!-- Populated dynamically with bubbles -->
                     <div class="idle-state">No chat messages found.</div>
                 </div>
                 <!-- Chat Message Sender Input bar -->
-                <div class="workspace-selector-box" style="border-top: 1px solid var(--border-muted); padding: 8px; background-color: #0d0d0d;">
+                <div class="workspace-selector-box chat-input-bar" style="border-top: 1px solid var(--border-muted); padding: 8px;">
                     <div class="workspace-input-group" style="display: flex; gap: 8px; width: 100%;">
                         <input type="text" id="chat-message-input" class="workspace-input" placeholder="Type a message..." style="padding: 6px; font-size: 0.8rem; flex: 1;" />
                         <button id="chat-send-btn" class="workspace-btn" style="height: 32px; font-size: 0.75rem; padding: 0 12px;">Send</button>
@@ -178,7 +172,7 @@
         <div class="overlay-header">
             <span id="artifact-filename" class="overlay-title">artifact.md</span>
         </div>
-        <div id="artifact-rendered-content" class="section-content" style="background-color: #000; color: #fff; padding: 16px; overflow-y: auto; flex: 1;">
+        <div id="artifact-rendered-content" class="section-content" style="padding: 16px; overflow-y: auto; flex: 1;">
             <!-- Rendered HTML goes here -->
         </div>
         <div class="overlay-actions">
@@ -189,7 +183,10 @@
     <!-- xterm.js CDN files -->
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <!-- Markdown parsing & Syntax Highlighting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <!-- Application Logic -->
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=1.0.2"></script>
 </body>
 </html>

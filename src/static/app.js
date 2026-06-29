@@ -14,7 +14,44 @@ let openFilePath = '';
 let activeConversationId = '';
 let currentArtifactName = '';
 let currentArtifactLines = [];
-let commandsPollingInterval = null;
+
+// Configure Marked and Highlight.js
+marked.use({
+    renderer: {
+        code(code, infostring) {
+            const lang = (infostring || '').match(/\S*/)[0];
+            const validLang = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+            const highlighted = hljs.highlight(code, { language: validLang }).value;
+            return `<pre><code class="hljs language-${validLang}">${highlighted}</code></pre>`;
+        },
+        blockquote(quote) {
+            const alertMatch = quote.match(/^\s*<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?\s*/i);
+            if (alertMatch) {
+                const type = alertMatch[1].toLowerCase();
+                const alertIcons = {
+                    note: 'ℹ️',
+                    tip: '💡',
+                    important: '📢',
+                    warning: '⚠️',
+                    caution: '🛑'
+                };
+                const icon = alertIcons[type] || 'ℹ️';
+                const content = quote.replace(/^\s*<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?\s*/i, '<p>');
+                return `
+                    <div class="alert-box alert-${type}">
+                        <div class="alert-title">
+                            <span class="alert-icon">${icon}</span>
+                            <span>${type.toUpperCase()}</span>
+                        </div>
+                        <div class="alert-content">${content}</div>
+                    </div>
+                `;
+            }
+            return `<blockquote>${quote}</blockquote>`;
+        }
+    }
+});
+
 
 // DOM Elements
 const wsStatusDot = document.getElementById('ws-status-dot');
@@ -41,12 +78,11 @@ const editorSaveBtn = document.getElementById('editor-save-btn');
 
 // Conversation Tab Elements
 const conversationSelect = document.getElementById('conversation-select');
-const commandsListDisplay = document.getElementById('commands-list-display');
 const transcriptChatDisplay = document.getElementById('transcript-chat-display');
-const refreshCommandsBtn = document.getElementById('refresh-commands-btn');
 const refreshTranscriptBtn = document.getElementById('refresh-transcript-btn');
 const chatMessageInput = document.getElementById('chat-message-input');
 const chatSendBtn = document.getElementById('chat-send-btn');
+const newChatBtn = document.getElementById('new-chat-btn');
 
 // Artifacts Elements
 const artifactsListDisplay = document.getElementById('artifacts-list-display');
@@ -61,6 +97,7 @@ const ctrlBtn = document.querySelector('[data-key="Ctrl"]');
 
 // Initialize Web UI
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     initTabs();
     initTerminal();
     connectWebSockets();
@@ -78,11 +115,7 @@ function initTabs() {
         btn.addEventListener('click', () => {
             const target = btn.getAttribute('data-target');
             
-            // Clear polling interval if switching away from conversation-tab
-            if (commandsPollingInterval) {
-                clearInterval(commandsPollingInterval);
-                commandsPollingInterval = null;
-            }
+
             
             // Toggle buttons
             tabButtons.forEach(b => b.classList.remove('active'));
@@ -100,11 +133,7 @@ function initTabs() {
                 }, 50);
             }
             
-            // Start background commands polling when conversation tab is selected
             if (target === 'conversation-tab') {
-                loadBackgroundCommands();
-                commandsPollingInterval = setInterval(loadBackgroundCommands, 5000);
-                
                 // Force a scroll to the bottom now that the container is visible
                 setTimeout(() => {
                     transcriptChatDisplay.scrollTop = transcriptChatDisplay.scrollHeight;
@@ -114,25 +143,42 @@ function initTabs() {
     });
 }
 
+const lightTerminalTheme = {
+    background: '#ffffff',
+    foreground: '#000000',
+    cursor: '#000000',
+    black: '#000000',
+    red: '#ff3b30',
+    green: '#34c759',
+    yellow: '#ffcc00',
+    blue: '#007aff',
+    magenta: '#af52de',
+    cyan: '#55bef0',
+    white: '#ffffff'
+};
+
+const darkTerminalTheme = {
+    background: '#000000',
+    foreground: '#ffffff',
+    cursor: '#ffffff',
+    black: '#000000',
+    red: '#ff453a',
+    green: '#30d158',
+    yellow: '#ffd60a',
+    blue: '#0a84ff',
+    magenta: '#bf5af2',
+    cyan: '#5ac8fa',
+    white: '#ffffff'
+};
+
 // 2. Terminal Initialization
 function initTerminal() {
+    const isLightTheme = document.body.classList.contains('light-theme');
     term = new Terminal({
         cursorBlink: true,
         fontSize: 13,
         fontFamily: 'SFMono-Regular, Consolas, Courier, monospace',
-        theme: {
-            background: '#000000',
-            foreground: '#ffffff',
-            cursor: '#ffffff',
-            black: '#000000',
-            red: '#ff453a',
-            green: '#30d158',
-            yellow: '#ffd60a',
-            blue: '#0a84ff',
-            magenta: '#bf5af2',
-            cyan: '#5ac8fa',
-            white: '#ffffff'
-        },
+        theme: isLightTheme ? lightTerminalTheme : darkTerminalTheme,
         convertEol: true
     });
 
@@ -233,9 +279,19 @@ function handleStateUpdate(payload) {
     const data = payload.data;
     
     if (filename === 'workspace_state.json') {
-        stateJsonDisplay.textContent = JSON.stringify(data, null, 2);
+        if (stateJsonDisplay) {
+            stateJsonDisplay.textContent = JSON.stringify(data, null, 2);
+        }
     } else if (filename === 'pending_approval.json') {
         renderPendingApproval(data);
+    } else if (filename === 'transcript.jsonl') {
+        if (activeConversationId && (!data || !data.conversation_id || data.conversation_id === activeConversationId)) {
+            loadConversationTranscript(activeConversationId, false);
+        }
+    } else if (filename === 'artifacts') {
+        if (activeConversationId && (!data || !data.conversation_id || data.conversation_id === activeConversationId)) {
+            loadConversationArtifacts(activeConversationId);
+        }
     }
 }
 
@@ -382,7 +438,9 @@ async function initWorkspaceSelector() {
     try {
         const stateRes = await fetch('/state');
         const stateData = await stateRes.json();
-        stateJsonDisplay.textContent = JSON.stringify(stateData, null, 2);
+        if (stateJsonDisplay) {
+            stateJsonDisplay.textContent = JSON.stringify(stateData, null, 2);
+        }
         
         const appRes = await fetch('/approval/pending');
         const appData = await appRes.json();
@@ -432,15 +490,19 @@ async function initWorkspaceSelector() {
     });
 
     // Handle refresh buttons
-    refreshStateBtn.addEventListener('click', async () => {
-        try {
-            const stateRes = await fetch('/state');
-            const stateData = await stateRes.json();
-            stateJsonDisplay.textContent = JSON.stringify(stateData, null, 2);
-        } catch (e) {
-            console.error(e);
-        }
-    });
+    if (refreshStateBtn) {
+        refreshStateBtn.addEventListener('click', async () => {
+            try {
+                const stateRes = await fetch('/state');
+                const stateData = await stateRes.json();
+                if (stateJsonDisplay) {
+                    stateJsonDisplay.textContent = JSON.stringify(stateData, null, 2);
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        });
+    }
 
     refreshFilesBtn.addEventListener('click', () => {
         loadWorkspaceFiles(currentFileExplorerPath);
@@ -654,9 +716,7 @@ async function initConversationTab() {
     refreshTranscriptBtn.addEventListener('click', () => {
         if (activeConversationId) loadConversationTranscript(activeConversationId, false);
     });
-    refreshCommandsBtn.addEventListener('click', () => {
-        loadBackgroundCommands();
-    });
+
     refreshArtifactsBtn.addEventListener('click', () => {
         if (activeConversationId) loadConversationArtifacts(activeConversationId);
     });
@@ -667,6 +727,31 @@ async function initConversationTab() {
         if (e.key === 'Enter') {
             e.preventDefault();
             sendChatMessage();
+        }
+    });
+
+    // 5. New Chat listener
+    newChatBtn.addEventListener('click', async () => {
+        try {
+            const res = await fetch('/api/conversation/new', { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'success' && data.conversation_id) {
+                // Reload conversations list
+                await loadConversations();
+                
+                // Select the new conversation
+                conversationSelect.value = data.conversation_id;
+                activeConversationId = data.conversation_id;
+                
+                // Load its empty transcript and artifacts
+                await loadConversationTranscript(data.conversation_id, true);
+                await loadConversationArtifacts(data.conversation_id);
+            } else {
+                alert(data.message || 'Failed to start a new chat.');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error starting a new chat.');
         }
     });
 }
@@ -726,10 +811,11 @@ async function loadConversationTranscript(id, forceScroll = false) {
             data.messages.forEach((m) => {
                 const isUser = m.sender === 'user';
                 const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
+                const renderedContent = marked.parse(m.content);
                 html += `
                     <div class="chat-bubble ${isUser ? 'user' : 'assistant'}">
                         <div class="chat-meta">${isUser ? 'USER' : 'ANTIGRAVITY'} - ${timeStr}</div>
-                        <div>${escapeHtml(m.content).replace(/\n/g, '<br/>')}</div>
+                        <div class="markdown-body">${renderedContent}</div>
                     </div>
                 `;
             });
@@ -750,38 +836,6 @@ async function loadConversationTranscript(id, forceScroll = false) {
     }
 }
 
-async function loadBackgroundCommands() {
-    try {
-        const res = await fetch('/api/background-commands');
-        const data = await res.json();
-        if (data.status === 'success' && data.commands) {
-            if (data.commands.length === 0) {
-                commandsListDisplay.innerHTML = '<li class="idle-state" style="padding: 12px 8px; font-size: 0.8rem;">No active background processes.</li>';
-                return;
-            }
-            
-            let html = '';
-            data.commands.forEach((c) => {
-                const isPTY = c.source === 'PTY Terminal';
-                const isRunning = c.status.startsWith('R') || c.status.startsWith('S') || c.status.startsWith('I');
-                const statusClass = isRunning ? 'running' : 'other';
-                html += `
-                    <li class="command-item">
-                        <div class="command-row-top">
-                            <span class="command-source">${escapeHtml(c.source)}</span>
-                            <span class="command-pid">PID: ${c.pid}</span>
-                            <span class="command-status ${statusClass}">${escapeHtml(c.status)}</span>
-                        </div>
-                        <div class="command-text">${escapeHtml(c.command)}</div>
-                    </li>
-                `;
-            });
-            commandsListDisplay.innerHTML = html;
-        }
-    } catch (e) {
-        console.error('Error fetching background commands:', e);
-    }
-}
 
 async function loadConversationArtifacts(id) {
     artifactsListDisplay.innerHTML = '<li class="idle-state">Loading artifacts...</li>';
@@ -846,50 +900,52 @@ async function openArtifactViewer(name) {
 }
 
 function renderArtifactHtml() {
-    let inCodeBlock = false;
-    let html = '<div class="markdown-body">';
+    const taskLines = [];
+    const processedLines = currentArtifactLines.map((line, index) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('- [ ]') || trimmed.startsWith('- [x]') || trimmed.startsWith('- [/]')) {
+            taskLines.push({
+                lineIndex: index,
+                isInProgress: trimmed.startsWith('- [/]')
+            });
+            if (trimmed.startsWith('- [/]')) {
+                return line.replace('- [/]', '- [ ]');
+            }
+        }
+        return line;
+    });
+
+    const markdownText = processedLines.join('\n');
+    const renderedHtml = marked.parse(markdownText);
     
-    for (let i = 0; i < currentArtifactLines.length; i++) {
-        const line = currentArtifactLines[i];
-        
-        if (line.startsWith('```')) {
-            inCodeBlock = !inCodeBlock;
-            html += inCodeBlock ? '<pre><code>' : '</code></pre>';
-            continue;
+    artifactRenderedContent.innerHTML = `<div class="markdown-body">${renderedHtml}</div>`;
+    
+    const checkboxes = artifactRenderedContent.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach((checkbox, idx) => {
+        if (idx < taskLines.length) {
+            const { lineIndex, isInProgress } = taskLines[idx];
+            
+            checkbox.removeAttribute('disabled');
+            checkbox.classList.add('task-list-item-checkbox');
+            checkbox.setAttribute('data-line-index', lineIndex);
+            
+            checkbox.addEventListener('change', function() {
+                toggleTaskCheckbox(this);
+            });
+            
+            const li = checkbox.parentElement;
+            if (li) {
+                li.classList.add('task-list-item');
+                if (isInProgress) {
+                    li.classList.add('in-progress');
+                    const badge = document.createElement('span');
+                    badge.className = 'task-progress-badge';
+                    badge.innerHTML = '[/] In Progress';
+                    li.appendChild(badge);
+                }
+            }
         }
-        
-        if (inCodeBlock) {
-            html += escapeHtml(line) + '\n';
-            continue;
-        }
-        
-        if (line.startsWith('# ')) {
-            html += `<h1>${escapeHtml(line.slice(2))}</h1>`;
-        } else if (line.startsWith('## ')) {
-            html += `<h2>${escapeHtml(line.slice(3))}</h2>`;
-        } else if (line.startsWith('### ')) {
-            html += `<h3>${escapeHtml(line.slice(4))}</h3>`;
-        } else if (line.trim().startsWith('- [ ]') || line.trim().startsWith('- [x]') || line.trim().startsWith('- [/]')) {
-            const checked = line.includes('[x]');
-            const inProgress = line.includes('[/]');
-            const text = line.replace(/^-\s+\[[ x/]\]/, '').trim();
-            const progressBadge = inProgress ? ' <span style="color: #ffd60a; font-family: monospace;">[/]</span>' : '';
-            html += `
-                <li class="task-list-item">
-                    <input type="checkbox" class="task-list-item-checkbox" data-line-index="${i}" ${checked ? 'checked' : ''} onchange="toggleTaskCheckbox(this)" />
-                    <span>${escapeHtml(text)}${progressBadge}</span>
-                </li>
-            `;
-        } else if (line.trim().startsWith('- ')) {
-            html += `<li>${escapeHtml(line.trim().slice(2))}</li>`;
-        } else if (line.trim() === '') {
-            // empty space
-        } else {
-            html += `<p>${escapeHtml(line)}</p>`;
-        }
-    }
-    html += '</div>';
-    artifactRenderedContent.innerHTML = html;
+    });
 }
 
 async function toggleTaskCheckbox(checkbox) {
@@ -950,4 +1006,51 @@ function formatBytes(bytes, decimals = 2) {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+// Theme management
+function initTheme() {
+    const themeToggleBtn = document.getElementById('theme-toggle-btn');
+    if (!themeToggleBtn) return;
+    
+    // Check saved theme or system preference
+    const savedTheme = localStorage.getItem('theme');
+    const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    
+    const isLight = savedTheme === 'light' || (!savedTheme && prefersLight);
+    
+    if (isLight) {
+        document.body.classList.add('light-theme');
+        themeToggleBtn.textContent = 'Dark Mode';
+        updateHljsTheme(true);
+    } else {
+        document.body.classList.remove('light-theme');
+        themeToggleBtn.textContent = 'Light Mode';
+        updateHljsTheme(false);
+    }
+    
+    themeToggleBtn.addEventListener('click', () => {
+        const currentlyLight = document.body.classList.toggle('light-theme');
+        localStorage.setItem('theme', currentlyLight ? 'light' : 'dark');
+        themeToggleBtn.textContent = currentlyLight ? 'Dark Mode' : 'Light Mode';
+        
+        // Update highlight.js theme stylesheet
+        updateHljsTheme(currentlyLight);
+        
+        // Update xterm terminal options theme
+        if (term) {
+            term.options.theme = currentlyLight ? lightTerminalTheme : darkTerminalTheme;
+        }
+    });
+}
+
+function updateHljsTheme(isLight) {
+    const hljsThemeLink = document.getElementById('hljs-theme-stylesheet');
+    if (hljsThemeLink) {
+        if (isLight) {
+            hljsThemeLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css';
+        } else {
+            hljsThemeLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';
+        }
+    }
 }

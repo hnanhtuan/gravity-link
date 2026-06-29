@@ -3,6 +3,10 @@ import sys
 import json
 import asyncio
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 import subprocess
 from contextlib import asynccontextmanager
 
@@ -19,9 +23,10 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.pty_manager import PtyManager
-from src.file_watcher import WorkspaceWatcher
+from src.file_watcher import WorkspaceWatcher, BrainWatcher
 from src.state_manager import get_state, get_pending_approval, set_approval_status, update_state, update_pending_approval
 from src import state_manager
+from src.sdk_wrapper import AntigravitySDKWrapper
 
 # Configure Logging
 logging.basicConfig(
@@ -50,6 +55,13 @@ class ArtifactSaveRequest(BaseModel):
 
 class MessageSendRequest(BaseModel):
     content: str
+
+class TaskSpawnRequest(BaseModel):
+    prompt: str
+
+class ReviewSubmitRequest(BaseModel):
+    decision: str
+    feedback: Optional[str] = None
 
 # WebSocket Connection Manager
 class ConnectionManager:
@@ -90,14 +102,17 @@ class ConnectionManager:
 # Global instances to be initialized in lifespan
 terminal_manager = ConnectionManager()
 state_manager_ws = ConnectionManager()
+agent_manager = ConnectionManager()
 
 pty_manager: Optional[PtyManager] = None
 file_watcher: Optional[WorkspaceWatcher] = None
+brain_watcher: Optional[BrainWatcher] = None
+sdk_wrapper = AntigravitySDKWrapper()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup logic
-    global pty_manager, file_watcher
+    global pty_manager, file_watcher, brain_watcher
     
     loop = asyncio.get_running_loop()
     logger.info("Initializing system components...")
@@ -120,6 +135,20 @@ async def lifespan(app: FastAPI):
         
     file_watcher = WorkspaceWatcher(loop=loop, broadcast_callback=state_broadcaster)
     await file_watcher.start()
+
+    # 3. Register Listener for Agent broadcasts
+    async def agent_broadcaster(message: str) -> None:
+        await agent_manager.broadcast(message)
+
+    sdk_wrapper.register_listener(agent_broadcaster)
+
+    # 4. Initialize Brain Watcher to monitor conversation transcripts and artifacts
+    async def brain_broadcaster(conv_id: str, event_type: str) -> None:
+        payload = json.dumps({"file": event_type, "data": {"refresh": True, "conversation_id": conv_id}})
+        await state_manager_ws.broadcast(payload)
+
+    brain_watcher = BrainWatcher(loop=loop, brain_dir=BRAIN_DIR, broadcast_callback=brain_broadcaster)
+    await brain_watcher.start()
     
     logger.info("System components initialized successfully. Ready for requests.")
     
@@ -127,8 +156,12 @@ async def lifespan(app: FastAPI):
     
     # Shutdown logic
     logger.info("Shutting down components...")
+    sdk_wrapper.unregister_listener(agent_broadcaster)
+    await sdk_wrapper.cancel_task()
     if file_watcher:
         await file_watcher.stop()
+    if brain_watcher:
+        await brain_watcher.stop()
     if pty_manager:
         await pty_manager.stop()
     logger.info("Shutdown completed.")
@@ -360,6 +393,25 @@ async def api_get_conversation_current():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@app.post("/api/conversation/new")
+async def api_post_conversation_new():
+    """Creates a new stateful conversation session by generating a new brain folder and transcript.jsonl."""
+    try:
+        import uuid
+        new_id = str(uuid.uuid4())
+        conv_dir = safe_brain_join(new_id)
+        logs_dir = os.path.join(conv_dir, ".system_generated", "logs")
+        os.makedirs(logs_dir, exist_ok=True)
+        transcript_path = os.path.join(logs_dir, "transcript.jsonl")
+        
+        # Write an empty file to initialize the transcript
+        with open(transcript_path, "w", encoding="utf-8") as f:
+            f.write("")
+            
+        return {"status": "success", "conversation_id": new_id}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @app.get("/api/conversation/{conv_id}/transcript")
 async def api_get_conversation_transcript(conv_id: str):
     """Parses transcript.jsonl for a specific conversation."""
@@ -455,15 +507,35 @@ async def api_post_conversation_artifact_save(conv_id: str, name: str, request: 
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+async def check_agentapi_has_trajectory(agentapi_path: str, conv_id: str) -> bool:
+    """Checks with agentapi if the trajectory exists in the IDE's RPC backend."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            agentapi_path, "get-conversation-metadata", conv_id,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            data = json.loads(stdout.decode())
+            if "response" in data and "conversationMetadata" in data["response"]:
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Error checking agentapi trajectory for {conv_id}: {e}")
+        return False
+
+
 @app.post("/api/conversation/{conv_id}/message")
 async def api_post_conversation_message(conv_id: str, request: MessageSendRequest):
-    """Appends a new user message to the conversation's transcript.jsonl."""
+    """Appends a new user message to the conversation's transcript.jsonl and triggers the agent task."""
     try:
         conv_dir = safe_brain_join(conv_id)
         transcript_path = os.path.join(conv_dir, ".system_generated", "logs", "transcript.jsonl")
         if not os.path.exists(transcript_path):
             return {"status": "error", "message": "Transcript file not found"}
             
+        # Determine next step index by reading existing transcript
         next_step_index = 0
         try:
             with open(transcript_path, "r", encoding="utf-8") as f:
@@ -478,6 +550,7 @@ async def api_post_conversation_message(conv_id: str, request: MessageSendReques
         except Exception:
             pass
             
+        # Append user message to transcript immediately
         import datetime
         timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
         content_str = f"<USER_REQUEST>\n{request.content}\n</USER_REQUEST>"
@@ -494,7 +567,54 @@ async def api_post_conversation_message(conv_id: str, request: MessageSendReques
         with open(transcript_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(log_entry) + "\n")
             
-        return {"status": "success", "step_index": next_step_index}
+        # Broadcast refresh notification immediately so the user message updates instantly in the UI
+        try:
+            await state_manager_ws.broadcast(
+                json.dumps({"file": "transcript.jsonl", "data": {"refresh": True, "conversation_id": conv_id}})
+            )
+        except Exception:
+            pass
+            
+        # Check if the IDE's agentapi CLI tool is available on the workstation
+        agentapi_path = "/home/hoangt00/.gemini/antigravity-ide/bin/agentapi"
+        is_testing = "PYTEST_CURRENT_TEST" in os.environ
+        
+        has_agentapi = os.path.exists(agentapi_path) and not is_testing
+        has_trajectory = False
+        if has_agentapi:
+            has_trajectory = await check_agentapi_has_trajectory(agentapi_path, conv_id)
+            
+        if has_agentapi and has_trajectory:
+            # Route message through the IDE's agentapi tool using your Google AI Pro subscription
+            cmd = [agentapi_path, "send-message", conv_id, request.content]
+            
+            async def run_agentapi_subprocess():
+                try:
+                    proc = await asyncio.create_subprocess_exec(
+                        *cmd,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE
+                    )
+                    stdout, stderr = await proc.communicate()
+                    logging.info(f"agentapi exited with code {proc.returncode}")
+                    if stdout:
+                        logging.info(f"agentapi stdout: {stdout.decode().strip()}")
+                    if stderr:
+                        logging.error(f"agentapi stderr: {stderr.decode().strip()}")
+                except Exception as sub_err:
+                    logging.error(f"Failed to run agentapi subprocess: {sub_err}")
+                    
+            asyncio.create_task(run_agentapi_subprocess())
+            return {"status": "success"}
+        elif not has_agentapi and os.environ.get("GEMINI_API_KEY"):
+            # Active agent session mode: let the SDK handle message execution and appending
+            if sdk_wrapper.agent_state != "Idle":
+                return {"status": "error", "message": "Agent is currently busy"}
+            sdk_wrapper.spawn_task(request.content, conversation_id=conv_id)
+            return {"status": "success"}
+        else:
+            # Fallback offline mode (message is already appended to the transcript locally)
+            return {"status": "success", "step_index": next_step_index}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -636,6 +756,62 @@ async def api_post_file_save(request: FileSaveRequest):
         return {"status": "success"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+# Antigravity SDK Routes
+@app.post("/api/task/spawn")
+async def api_spawn_task(request: TaskSpawnRequest):
+    """Spawn a new Antigravity agent task session."""
+    try:
+        sdk_wrapper.spawn_task(request.prompt)
+        return {"status": "success", "message": "Task spawned successfully"}
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/agent/state")
+async def api_get_agent_state():
+    """Query the current state and active artifact being reviewed."""
+    return {
+        "status": "success",
+        "state": sdk_wrapper.agent_state,
+        "artifact": sdk_wrapper.current_artifact
+    }
+
+@app.post("/api/agent/review")
+async def api_submit_review(request: ReviewSubmitRequest):
+    """Approve or reject/give feedback for the pending artifact."""
+    try:
+        sdk_wrapper.submit_review(request.decision, request.feedback)
+        return {"status": "success", "message": f"Review decision '{request.decision}' submitted"}
+    except ValueError as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/agent/cancel")
+async def api_cancel_task():
+    """Cancel the current running task session."""
+    await sdk_wrapper.cancel_task()
+    return {"status": "success", "message": "Task cancelled successfully"}
+
+@app.websocket("/ws/agent")
+async def websocket_agent(websocket: WebSocket):
+    """WebSocket endpoint for streaming agent events (thoughts, text, tool calls, and state)."""
+    await agent_manager.connect(websocket)
+    try:
+        # Pushes current state information immediately upon connection
+        await websocket.send_json({
+            "type": "state_change",
+            "state": sdk_wrapper.agent_state,
+            "artifact": sdk_wrapper.current_artifact
+        })
+        while True:
+            # Maintain connection, clients are consumers
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        logger.info("Agent WebSocket client disconnected.")
+    except Exception as e:
+        logger.error(f"Error in Agent WebSocket connection: {e}")
+    finally:
+        agent_manager.disconnect(websocket)
+
 
 # Serve Static UI Frontend
 @app.get("/", response_class=HTMLResponse)

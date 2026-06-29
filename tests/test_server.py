@@ -10,6 +10,9 @@ from src.state_manager import STATE_FILE, APPROVAL_FILE, get_state, update_state
 @pytest.fixture(autouse=True)
 def setup_test_files():
     """Fixture to backup current state files and reset them for clean test runs."""
+    # Temporarily remove GEMINI_API_KEY so tests run in offline fallback mode
+    old_api_key = os.environ.pop("GEMINI_API_KEY", None)
+
     # Ensure active workspace is default before test
     set_active_workspace(DEFAULT_WORKSPACE_DIR)
     
@@ -51,6 +54,10 @@ def setup_test_files():
     else:
         if os.path.exists(APPROVAL_FILE):
             os.remove(APPROVAL_FILE)
+
+    # Restore API Key
+    if old_api_key is not None:
+        os.environ["GEMINI_API_KEY"] = old_api_key
 
 
 @pytest.mark.asyncio

@@ -161,3 +161,90 @@ class WorkspaceWatcher:
             self.debounce_tasks.clear()
             
         logger.info("Workspace observer stopped.")
+
+
+class BrainEventHandler(FileSystemEventHandler):
+    """Watchdog event handler that detects changes to transcript.jsonl and artifact .md files in the brain folder."""
+    
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        on_modified_callback: Callable[[str], Coroutine[Any, Any, None]]
+    ):
+        self.loop = loop
+        self.on_modified_callback = on_modified_callback
+
+    def on_modified(self, event):
+        self._handle_event(event)
+
+    def on_created(self, event):
+        self._handle_event(event)
+
+    def _handle_event(self, event):
+        if event.is_directory:
+            return
+        file_path = os.path.abspath(event.src_path)
+        if file_path.endswith("transcript.jsonl") or file_path.endswith(".md"):
+            asyncio.run_coroutine_threadsafe(
+                self.on_modified_callback(file_path),
+                self.loop
+            )
+
+
+class BrainWatcher:
+    """Monitors the brain directory recursively for transcript.jsonl and .md changes."""
+    
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        brain_dir: str,
+        broadcast_callback: Callable[[str, str], Coroutine[Any, Any, None]]
+    ):
+        self.loop = loop
+        self.brain_dir = os.path.abspath(brain_dir)
+        self.broadcast_callback = broadcast_callback
+        self.observer: Optional[Observer] = None
+
+    async def start(self) -> None:
+        """Starts the watchdog observer on the brain directory recursively."""
+        logger.info(f"Starting brain observer recursively on {self.brain_dir}")
+        os.makedirs(self.brain_dir, exist_ok=True)
+        
+        event_handler = BrainEventHandler(
+            loop=self.loop,
+            on_modified_callback=self._handle_file_modified
+        )
+        
+        self.observer = Observer()
+        self.observer.schedule(event_handler, self.brain_dir, recursive=True)
+        self.observer.start()
+
+    async def _handle_file_modified(self, file_path: str) -> None:
+        """Extracts the conversation ID and broadcasts the transcript/artifact change."""
+        rel_path = os.path.relpath(file_path, self.brain_dir)
+        parts = rel_path.split(os.sep)
+        if len(parts) <= 1:
+            return
+            
+        conv_id = parts[0]
+        
+        # Determine event type
+        if file_path.endswith("transcript.jsonl"):
+            event_type = "transcript.jsonl"
+        elif file_path.endswith(".md"):
+            event_type = "artifacts"
+        else:
+            return
+            
+        logger.info(f"BrainWatcher detected {event_type} change for conversation {conv_id} (file: {os.path.basename(file_path)})")
+        await self.broadcast_callback(conv_id, event_type)
+
+    async def stop(self) -> None:
+        """Stops the brain directory observer."""
+        if self.observer:
+            logger.info("Stopping brain observer...")
+            self.observer.stop()
+            await asyncio.to_thread(self.observer.join)
+            self.observer = None
+            logger.info("Brain observer stopped.")
+
