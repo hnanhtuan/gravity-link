@@ -29,11 +29,10 @@
     <!-- Workspace Selector -->
     <div id="project-link-panel" class="workspace-selector-box app-chrome-section" style="display: flex; flex-direction: column; gap: 4px; padding: 4px 6px;">
         <!-- Recent Workspaces Dropdown -->
-        <div id="project-link-content" class="workspace-input-group chrome-collapse-content" style="display: flex; gap: 4px; align-items: center; width: 100%;">
-            <label for="workspace-recent-select" style="font-size: 0.7rem; text-transform: uppercase; font-weight: bold; display: flex; align-items: center; width: 52px; flex-shrink: 0;">Project:</label>
-            <input id="workspace-recent-select" class="workspace-input" list="workspace-recent-options" placeholder="Project path" style="padding: 4px; font-size: 0.75rem; cursor: text; flex: 1; min-width: 0;" />
+        <div id="project-link-content" class="workspace-input-group chrome-collapse-content">
+            <label for="workspace-recent-select" style="font-size: 0.7rem; text-transform: uppercase; font-weight: bold; display: flex; align-items: center; width: 52px;">Project:</label>
+            <input id="workspace-recent-select" class="workspace-input" list="workspace-recent-options" placeholder="Project path" style="padding: 4px; font-size: 0.75rem; cursor: text; flex: 1;" />
             <datalist id="workspace-recent-options"></datalist>
-            <button id="accept-changes-btn" class="workspace-btn" style="height: 26px; font-size: 0.68rem; padding: 0 8px; white-space: nowrap; flex-shrink: 0;">Accept Changes</button>
         </div>
     </div>
 
@@ -129,6 +128,11 @@
                 <div id="transcript-chat-display" class="section-content" style="padding: 4px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; min-height: 0;">
                     <!-- Populated dynamically with bubbles -->
                     <div class="idle-state">No chat messages found.</div>
+                </div>
+                <!-- Accept Changes Banner -->
+                <div id="accept-changes-banner" class="accept-changes-banner hidden">
+                    <span>Uncommitted changes in workspace</span>
+                    <button id="accept-changes-btn" class="workspace-btn">Accept Changes</button>
                 </div>
                 <!-- Chat Message Sender Input bar -->
                 <div class="workspace-selector-box chat-input-bar" style="border-top: 1px solid var(--border-muted); padding: 4px;">

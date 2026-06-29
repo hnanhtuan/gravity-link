@@ -294,6 +294,35 @@ async def api_select_workspace(request: WorkspaceSelectRequest):
         "approval_file": state_manager.APPROVAL_FILE
     }
 
+@app.get("/api/workspace/git-status")
+async def api_workspace_git_status():
+    """Checks if there are uncommitted changes in the active workspace."""
+    try:
+        workspace_dir = state_manager.active_workspace_dir
+        if not os.path.exists(workspace_dir):
+            return {"status": "success", "is_dirty": False, "is_git": False}
+
+        # Check if it is a git repository
+        git_dir = os.path.join(workspace_dir, ".git")
+        if not os.path.exists(git_dir):
+            return {"status": "success", "is_dirty": False, "is_git": False}
+
+        proc_status = await asyncio.create_subprocess_exec(
+            "git", "status", "--porcelain",
+            cwd=workspace_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout_status, _ = await proc_status.communicate()
+        if proc_status.returncode != 0:
+            return {"status": "success", "is_dirty": False, "is_git": True}
+
+        changes = stdout_status.decode().strip()
+        return {"status": "success", "is_dirty": bool(changes), "is_git": True}
+    except Exception as e:
+        logger.error(f"Error in api_workspace_git_status: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/api/workspace/accept-changes")
 async def api_workspace_accept_changes():
     """Runs git commands to accept (stage and commit) all changes in the active workspace."""

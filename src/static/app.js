@@ -138,6 +138,7 @@ const terminalContainer = document.getElementById('terminal-container');
 const workspaceRecentSelect = document.getElementById('workspace-recent-select');
 const workspaceRecentOptions = document.getElementById('workspace-recent-options');
 const acceptChangesBtn = document.getElementById('accept-changes-btn');
+const acceptChangesBanner = document.getElementById('accept-changes-banner');
 const appChromeToggle = document.getElementById('app-chrome-toggle');
 const topBanner = document.getElementById('top-banner');
 const projectLinkPanel = document.getElementById('project-link-panel');
@@ -580,6 +581,7 @@ function handleStateUpdate(payload) {
             loadConversationArtifacts(activeConversationId);
         }
     }
+    checkGitChangesStatus();
 }
 
 // Render approvals layout
@@ -728,6 +730,7 @@ async function selectWorkspacePath(path) {
             currentFileExplorerPath = '';
             loadWorkspaceFiles('');
             await loadRecentWorkspaces();
+            checkGitChangesStatus();
         } else {
             alert(data.message || 'Failed to select workspace.');
             workspaceRecentSelect.value = activeWorkspacePath;
@@ -809,6 +812,9 @@ async function initWorkspaceSelector() {
                 const data = await res.json();
                 if (data.status === 'success') {
                     showToast(data.message, 'success');
+                    if (acceptChangesBanner) {
+                        acceptChangesBanner.classList.add('hidden');
+                    }
                     // Refresh file explorer if we have a current path
                     if (typeof loadWorkspaceFiles === 'function') {
                         loadWorkspaceFiles(currentFileExplorerPath || '');
@@ -825,6 +831,10 @@ async function initWorkspaceSelector() {
             }
         });
     }
+
+    // Periodically poll git status and do initial check
+    checkGitChangesStatus();
+    setInterval(checkGitChangesStatus, 4000);
 
     // Handle refresh buttons
     if (refreshStateBtn) {
@@ -1447,4 +1457,22 @@ function showToast(message, type = 'info', duration = 3000) {
             toast.remove();
         }, 300);
     }, duration);
+}
+
+async function checkGitChangesStatus() {
+    try {
+        const res = await fetch('/api/workspace/git-status');
+        const data = await res.json();
+        if (data.status === 'success' && data.is_dirty) {
+            if (acceptChangesBanner) {
+                acceptChangesBanner.classList.remove('hidden');
+            }
+        } else {
+            if (acceptChangesBanner) {
+                acceptChangesBanner.classList.add('hidden');
+            }
+        }
+    } catch (e) {
+        console.error('Error checking git status:', e);
+    }
 }

@@ -545,3 +545,57 @@ async def test_accept_changes_api(tmp_path):
         log_proc = subprocess.run(["git", "log", "-1", "--oneline"], cwd=workspace_path, capture_output=True, text=True, check=True)
         assert "Accept agent changes" in log_proc.stdout
 
+
+@pytest.mark.asyncio
+async def test_git_status_api(tmp_path):
+    """Verify that GET /api/workspace/git-status correctly reports the repository status."""
+    import subprocess
+    workspace_path = str(tmp_path)
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # 1. Select the workspace directory
+        response = await ac.post("/workspace/select", json={"path": workspace_path})
+        assert response.status_code == 200
+        
+        # 2. Check git status (not a git repo, is_dirty=False, is_git=False)
+        response = await ac.get("/api/workspace/git-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["is_dirty"] is False
+        assert data["is_git"] is False
+        
+        # 3. Initialize git repo
+        subprocess.run(["git", "init"], cwd=workspace_path, check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=workspace_path, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=workspace_path, check=True)
+        
+        # Add .gitignore
+        gitignore_path = os.path.join(workspace_path, ".gitignore")
+        with open(gitignore_path, "w") as f:
+            f.write(".gravity_link\n")
+        subprocess.run(["git", "add", ".gitignore"], cwd=workspace_path, check=True)
+        subprocess.run(["git", "commit", "-m", "Add gitignore"], cwd=workspace_path, check=True)
+        
+        # 4. Check git status (clean git repo, is_dirty=False, is_git=True)
+        response = await ac.get("/api/workspace/git-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["is_dirty"] is False
+        assert data["is_git"] is True
+        
+        # 5. Make a change
+        test_file = os.path.join(workspace_path, "change.txt")
+        with open(test_file, "w") as f:
+            f.write("uncommitted change")
+            
+        # 6. Check git status (dirty git repo, is_dirty=True, is_git=True)
+        response = await ac.get("/api/workspace/git-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert data["is_dirty"] is True
+        assert data["is_git"] is True
+
+

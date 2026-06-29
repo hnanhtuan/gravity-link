@@ -1487,3 +1487,50 @@ body.light-theme .chat-bubble .markdown-body pre {
     color: var(--text-primary);
 }
 
+/* Accept Changes Banner */
+.accept-changes-banner {
+    border-top: 1px solid var(--border-muted);
+    padding: 6px 8px;
+    background-color: var(--card-bg);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    transition: all 0.3s ease;
+}
+
+.accept-changes-banner.hidden {
+    display: none !important;
+}
+
+.accept-changes-banner span {
+    font-size: 0.72rem;
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.accept-changes-banner button {
+    height: 24px;
+    font-size: 0.65rem;
+    padding: 0 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    background-color: #30d158;
+    color: #000000;
+    border-radius: 3px;
+    border: none;
+    font-weight: bold;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.accept-changes-banner button:active {
+    opacity: 0.8;
+}
+
+body.light-theme .accept-changes-banner button {
+    background-color: #34c759;
+    color: #ffffff;
+}
+
+
