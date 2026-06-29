@@ -702,7 +702,7 @@ async def api_post_conversation_message(conv_id: str, request: MessageSendReques
                     
             asyncio.create_task(run_agentapi_subprocess())
             return {"status": "success"}
-        elif not has_agentapi and os.environ.get("GEMINI_API_KEY"):
+        elif os.environ.get("GEMINI_API_KEY"):
             # Active agent session mode: let the SDK handle message execution and appending
             if sdk_wrapper.agent_state != "Idle":
                 return {"status": "error", "message": "Agent is currently busy"}
