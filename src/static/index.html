@@ -11,31 +11,28 @@
     <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-    <header>
-        <h1>Gravity Link</h1>
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <button id="theme-toggle-btn" class="theme-btn" style="background: none; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; font-size: 0.7rem; font-family: var(--font-sans); cursor: pointer; text-transform: uppercase; font-weight: bold; border-radius: 3px; outline: none; -webkit-tap-highlight-color: transparent;">Light Mode</button>
-            <div class="status-indicator">
-                <span id="ws-status-dot" class="status-dot"></span>
-                <span id="ws-status-text">Disconnected</span>
+    <button id="app-chrome-toggle" class="chrome-collapse-btn" type="button" aria-label="Collapse top controls" aria-controls="top-banner project-link-panel" aria-expanded="true">▲</button>
+
+    <header id="top-banner" class="app-chrome-section">
+        <div id="top-banner-content" class="chrome-collapse-content top-banner-content">
+            <h1>Gravity Link</h1>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <button id="theme-toggle-btn" class="theme-btn" style="background: none; border: 1px solid var(--border-color); color: var(--text-primary); padding: 4px 8px; font-size: 0.7rem; font-family: var(--font-sans); cursor: pointer; text-transform: uppercase; font-weight: bold; border-radius: 3px; outline: none; -webkit-tap-highlight-color: transparent;">Light Mode</button>
+                <div class="status-indicator">
+                    <span id="ws-status-dot" class="status-dot"></span>
+                    <span id="ws-status-text">Disconnected</span>
+                </div>
             </div>
         </div>
     </header>
 
     <!-- Workspace Selector -->
-    <div class="workspace-selector-box" style="display: flex; flex-direction: column; gap: 6px; padding: 8px 12px;">
+    <div id="project-link-panel" class="workspace-selector-box app-chrome-section" style="display: flex; flex-direction: column; gap: 4px; padding: 4px 6px;">
         <!-- Recent Workspaces Dropdown -->
-        <div class="workspace-input-group">
-            <label for="workspace-recent-select" style="font-size: 0.7rem; text-transform: uppercase; font-weight: bold; display: flex; align-items: center; width: 60px;">Recent:</label>
-            <select id="workspace-recent-select" class="workspace-input" style="padding: 6px; font-size: 0.75rem; cursor: pointer; flex: 1;">
-                <option value="">Loading workspaces...</option>
-            </select>
-        </div>
-        <!-- Manual/New Workspace Input -->
-        <div class="workspace-input-group">
-            <label for="workspace-path-input" style="font-size: 0.7rem; text-transform: uppercase; font-weight: bold; display: flex; align-items: center; width: 60px;">Path:</label>
-            <input type="text" id="workspace-path-input" class="workspace-input" placeholder="/path/to/project..." style="padding: 6px; font-size: 0.75rem;" />
-            <button id="workspace-select-btn" class="workspace-btn" style="height: 30px; font-size: 0.7rem; padding: 0 12px; display: flex; align-items: center; justify-content: center;">Set</button>
+        <div id="project-link-content" class="workspace-input-group chrome-collapse-content">
+            <label for="workspace-recent-select" style="font-size: 0.7rem; text-transform: uppercase; font-weight: bold; display: flex; align-items: center; width: 52px;">Project:</label>
+            <input id="workspace-recent-select" class="workspace-input" list="workspace-recent-options" placeholder="Project path" style="padding: 4px; font-size: 0.75rem; cursor: text; flex: 1;" />
+            <datalist id="workspace-recent-options"></datalist>
         </div>
     </div>
 
@@ -66,63 +63,90 @@
             </div>
         </div>
 
-        <!-- Tab 3: Conversation & Tasks (New) -->
+        <!-- Tab 3: Conversation & Tasks -->
         <div id="conversation-tab" class="tab-view">
             <!-- Dropdown selector for conversations -->
-            <div class="workspace-selector-box" style="border-bottom: 1px solid var(--border-muted); margin-bottom: 12px; padding: 4px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                <div class="workspace-input-group" style="display: flex; flex: 1; margin: 0;">
-                    <label for="conversation-select" style="font-size: 0.75rem; text-transform: uppercase; display: flex; align-items: center; font-weight: bold; margin-right: 8px; white-space: nowrap;">Chat Session:</label>
-                    <select id="conversation-select" class="workspace-input" style="padding: 4px; font-size: 0.75rem; cursor: pointer; flex: 1; min-width: 0;">
+            <div class="workspace-selector-box conversation-session-bar" style="border-bottom: 1px solid var(--border-muted); margin-bottom: 4px; padding: 2px 4px; display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                <div class="workspace-input-group conversation-session-picker" style="display: flex; flex: 1 1 auto; min-width: 0; margin: 0;">
+                    <label for="conversation-select" style="font-size: 0.68rem; text-transform: uppercase; display: flex; align-items: center; font-weight: bold; margin-right: 0; white-space: nowrap;">Chat:</label>
+                    <select id="conversation-select" class="workspace-input" style="padding: 3px; font-size: 0.72rem; cursor: pointer; flex: 1 1 auto; min-width: 0;">
                         <option value="">Loading conversations...</option>
                     </select>
                 </div>
-                <button id="new-chat-btn" class="workspace-btn" style="height: 28px; font-size: 0.7rem; padding: 0 10px; white-space: nowrap;">+ New</button>
+                <button id="new-chat-btn" class="workspace-btn" style="height: 26px; font-size: 0.68rem; padding: 0 6px; white-space: nowrap; flex: 0 0 auto;">+ New</button>
             </div>
 
-
+            <!-- Conversation Artifacts List -->
+            <div id="conversation-artifacts-section" class="section-box artifacts-section collapsed" style="flex: 0 0 auto; max-height: 28%; margin-bottom: 4px;">
+                <div class="section-title">
+                    <span>Conversation Artifacts</span>
+                    <div class="section-title-actions">
+                        <button id="toggle-artifacts-btn" class="btn-secondary icon-btn artifact-toggle-btn" type="button" aria-label="Show artifacts" title="Show artifacts" aria-expanded="false" aria-controls="artifacts-list-panel">
+                            <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                        </button>
+                        <button id="refresh-artifacts-btn" class="btn-secondary icon-btn" type="button" aria-label="Refresh artifacts" title="Refresh artifacts">
+                            <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M21 12a9 9 0 0 1-15.5 6.2"></path>
+                                <path d="M3 12A9 9 0 0 1 18.5 5.8"></path>
+                                <path d="M18 2v4h4"></path>
+                                <path d="M6 22v-4H2"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div id="artifacts-list-panel" class="section-content" style="padding: 0;" hidden>
+                    <ul id="artifacts-list-display" class="file-list">
+                        <!-- Populated dynamically -->
+                        <li class="idle-state" style="padding: 12px 8px; font-size: 0.8rem;">No artifacts generated.</li>
+                    </ul>
+                </div>
+            </div>
 
             <!-- Conversation Transcript Chat History -->
             <div class="section-box" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
                 <div class="section-title">
                     <span>Conversation Log</span>
-                    <button id="refresh-transcript-btn" class="btn-secondary" style="font-size: 0.65rem; padding: 2px 6px; height: auto;">Refresh</button>
+                    <button id="refresh-transcript-btn" class="btn-secondary icon-btn" type="button" aria-label="Refresh conversation log" title="Refresh conversation log">
+                        <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M21 12a9 9 0 0 1-15.5 6.2"></path>
+                            <path d="M3 12A9 9 0 0 1 18.5 5.8"></path>
+                            <path d="M18 2v4h4"></path>
+                            <path d="M6 22v-4H2"></path>
+                        </svg>
+                    </button>
                 </div>
-                <div id="transcript-chat-display" class="section-content" style="padding: 12px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; flex: 1; min-height: 220px; max-height: 45vh;">
+                <div id="transcript-chat-display" class="section-content" style="padding: 4px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex: 1; min-height: 0;">
                     <!-- Populated dynamically with bubbles -->
                     <div class="idle-state">No chat messages found.</div>
                 </div>
                 <!-- Chat Message Sender Input bar -->
-                <div class="workspace-selector-box chat-input-bar" style="border-top: 1px solid var(--border-muted); padding: 8px;">
-                    <div class="workspace-input-group" style="display: flex; gap: 8px; width: 100%;">
-                        <input type="text" id="chat-message-input" class="workspace-input" placeholder="Type a message..." style="padding: 6px; font-size: 0.8rem; flex: 1;" />
-                        <button id="chat-send-btn" class="workspace-btn" style="height: 32px; font-size: 0.75rem; padding: 0 12px;">Send</button>
+                <div class="workspace-selector-box chat-input-bar" style="border-top: 1px solid var(--border-muted); padding: 4px;">
+                    <div class="workspace-input-group" style="display: flex; gap: 4px; width: 100%;">
+                        <input type="text" id="chat-message-input" class="workspace-input" placeholder="Type a message..." style="padding: 4px; font-size: 0.8rem; flex: 1; min-width: 0;" />
+                        <button id="chat-send-btn" class="workspace-btn" style="height: 30px; font-size: 0.75rem; padding: 0 10px; flex: 0 0 auto;">Send</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Tab 4: Workspace & Docs (Modified) -->
+        <!-- Tab 4: Workspace -->
         <div id="state-tab" class="tab-view">
             <div class="state-split">
-                <!-- Conversation Artifacts List -->
-                <div class="section-box" style="max-height: 35%;">
-                    <div class="section-title">
-                        <span>Conversation Artifacts</span>
-                        <button id="refresh-artifacts-btn" class="btn-secondary" style="font-size: 0.65rem; padding: 2px 6px; height: auto;">Refresh</button>
-                    </div>
-                    <div class="section-content" style="padding: 0;">
-                        <ul id="artifacts-list-display" class="file-list">
-                            <!-- Populated dynamically -->
-                            <li class="idle-state" style="padding: 12px 8px; font-size: 0.8rem;">No artifacts generated.</li>
-                        </ul>
-                    </div>
-                </div>
-
                 <!-- File Explorer -->
                 <div class="section-box">
                     <div class="section-title">
                         <span>Workspace Files</span>
-                        <button id="refresh-files-btn" class="btn-secondary" style="font-size: 0.65rem; padding: 2px 6px; height: auto;">Refresh</button>
+                        <button id="refresh-files-btn" class="btn-secondary icon-btn" type="button" aria-label="Refresh workspace files" title="Refresh workspace files">
+                            <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M21 12a9 9 0 0 1-15.5 6.2"></path>
+                                <path d="M3 12A9 9 0 0 1 18.5 5.8"></path>
+                                <path d="M18 2v4h4"></path>
+                                <path d="M6 22v-4H2"></path>
+                            </svg>
+                        </button>
                     </div>
                     <!-- Breadcrumbs for folder navigation -->
                     <div id="file-breadcrumbs" class="breadcrumb">
@@ -141,17 +165,29 @@
 
     <!-- Bottom Tab Navigation Bar -->
     <nav class="tab-bar">
-        <button class="tab-btn active" data-target="terminal-tab">
-            Terminal
+        <button class="tab-btn active" data-target="terminal-tab" type="button" aria-label="Terminal" title="Terminal">
+            <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m4 17 6-6-6-6"></path>
+                <path d="M12 19h8"></path>
+            </svg>
         </button>
-        <button class="tab-btn" data-target="approvals-tab">
-            Approvals <span id="approval-badge" class="badge hidden">1</span>
+        <button class="tab-btn" data-target="approvals-tab" type="button" aria-label="Approvals" title="Approvals">
+            <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5"></path>
+            </svg>
+            <span id="approval-badge" class="badge hidden">1</span>
         </button>
-        <button class="tab-btn" data-target="conversation-tab">
-            Chat & Tasks
+        <button class="tab-btn" data-target="conversation-tab" type="button" aria-label="Chat and tasks" title="Chat and tasks">
+            <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"></path>
+                <path d="M8 9h8"></path>
+                <path d="M8 13h5"></path>
+            </svg>
         </button>
-        <button class="tab-btn" data-target="state-tab">
-            Workspace & Docs
+        <button class="tab-btn" data-target="state-tab" type="button" aria-label="Workspace" title="Workspace">
+            <svg class="tab-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            </svg>
         </button>
     </nav>
 
@@ -187,6 +223,6 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <!-- Application Logic -->
-    <script src="/static/app.js?v=1.0.2"></script>
+    <script src="/static/app.js?v=1.0.9"></script>
 </body>
 </html>

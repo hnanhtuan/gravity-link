@@ -6,6 +6,7 @@ let fitAddon;
 let termWs;
 let stateWs;
 let activeWorkspacePath = '';
+let pendingWorkspacePath = '';
 let currentFileExplorerPath = '';
 let ctrlActive = false;
 let openFilePath = '';
@@ -16,49 +17,117 @@ let currentArtifactName = '';
 let currentArtifactLines = [];
 
 // Configure Marked and Highlight.js
-marked.use({
-    renderer: {
-        code(code, infostring) {
-            const lang = (infostring || '').match(/\S*/)[0];
-            const validLang = lang && hljs.getLanguage(lang) ? lang : 'plaintext';
-            const highlighted = hljs.highlight(code, { language: validLang }).value;
-            return `<pre><code class="hljs language-${validLang}">${highlighted}</code></pre>`;
-        },
-        blockquote(quote) {
-            const alertMatch = quote.match(/^\s*<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?\s*/i);
-            if (alertMatch) {
-                const type = alertMatch[1].toLowerCase();
-                const alertIcons = {
-                    note: 'ℹ️',
-                    tip: '💡',
-                    important: '📢',
-                    warning: '⚠️',
-                    caution: '🛑'
-                };
-                const icon = alertIcons[type] || 'ℹ️';
-                const content = quote.replace(/^\s*<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?\s*/i, '<p>');
-                return `
-                    <div class="alert-box alert-${type}">
-                        <div class="alert-title">
-                            <span class="alert-icon">${icon}</span>
-                            <span>${type.toUpperCase()}</span>
+configureMarkdownRenderer();
+
+function configureMarkdownRenderer() {
+    if (!window.marked || typeof marked.use !== 'function') {
+        return;
+    }
+
+    marked.use({
+        renderer: {
+            code(codeOrToken, infostring) {
+                const token = typeof codeOrToken === 'object' && codeOrToken !== null ? codeOrToken : null;
+                const code = String(token ? (token.text ?? token.raw ?? '') : (codeOrToken ?? ''));
+                const langInfo = token ? (token.lang ?? token.langString ?? '') : (infostring ?? '');
+                const lang = String(langInfo || '').match(/\S*/)[0];
+                const canHighlight = window.hljs && typeof hljs.getLanguage === 'function' && typeof hljs.highlight === 'function';
+                const validLang = canHighlight && lang && hljs.getLanguage(lang) ? lang : 'plaintext';
+                let highlighted = escapeHtml(code);
+
+                if (canHighlight) {
+                    try {
+                        highlighted = hljs.highlight(code, { language: validLang }).value;
+                    } catch (e) {
+                        console.warn('Syntax highlight failed:', e);
+                    }
+                }
+
+                return `<pre><code class="hljs language-${escapeHtml(validLang)}">${highlighted}</code></pre>`;
+            },
+            blockquote(quoteOrToken) {
+                const quote = normalizeBlockquoteHtml(quoteOrToken);
+                const rawText = normalizeBlockquoteText(quoteOrToken);
+                const htmlAlertMatch = quote.match(/^\s*<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?\s*/i);
+                const textAlertMatch = rawText.match(/^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:\r?\n)?\s*/i);
+                const alertMatch = htmlAlertMatch || textAlertMatch;
+
+                if (alertMatch) {
+                    const type = alertMatch[1].toLowerCase();
+                    const alertIcons = {
+                        note: 'ℹ️',
+                        tip: '💡',
+                        important: '📢',
+                        warning: '⚠️',
+                        caution: '🛑'
+                    };
+                    const icon = alertIcons[type] || 'ℹ️';
+                    const content = htmlAlertMatch
+                        ? quote.replace(/^\s*<p>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?\s*/i, '<p>')
+                        : renderMarkdownText(rawText.replace(/^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:\r?\n)?\s*/i, ''));
+
+                    return `
+                        <div class="alert-box alert-${type}">
+                            <div class="alert-title">
+                                <span class="alert-icon">${icon}</span>
+                                <span>${type.toUpperCase()}</span>
+                            </div>
+                            <div class="alert-content">${content}</div>
                         </div>
-                        <div class="alert-content">${content}</div>
-                    </div>
-                `;
+                    `;
+                }
+                return `<blockquote>${quote}</blockquote>`;
             }
-            return `<blockquote>${quote}</blockquote>`;
+        }
+    });
+}
+
+function normalizeBlockquoteHtml(quoteOrToken) {
+    if (typeof quoteOrToken === 'string') {
+        return quoteOrToken;
+    }
+    if (quoteOrToken && Array.isArray(quoteOrToken.tokens) && window.marked && typeof marked.parser === 'function') {
+        try {
+            return marked.parser(quoteOrToken.tokens);
+        } catch (e) {
+            console.warn('Blockquote token render failed:', e);
         }
     }
-});
+    return renderBasicMarkdown(quoteOrToken && quoteOrToken.text ? quoteOrToken.text : '');
+}
+
+function normalizeBlockquoteText(quoteOrToken) {
+    if (typeof quoteOrToken === 'string') {
+        return quoteOrToken.replace(/<[^>]+>/g, '').trim();
+    }
+    return String(quoteOrToken && quoteOrToken.text ? quoteOrToken.text : '').trim();
+}
+
+function renderMarkdownText(markdownText) {
+    const text = String(markdownText ?? '');
+    if (window.marked && typeof marked.parse === 'function') {
+        try {
+            return marked.parse(text);
+        } catch (e) {
+            console.error('Markdown render failed:', e);
+        }
+    }
+    return renderBasicMarkdown(text);
+}
+
+function renderBasicMarkdown(markdownText) {
+    return `<pre class="plain-markdown">${escapeHtml(String(markdownText ?? ''))}</pre>`;
+}
 
 
 // DOM Elements
 const wsStatusDot = document.getElementById('ws-status-dot');
 const wsStatusText = document.getElementById('ws-status-text');
-const workspacePathInput = document.getElementById('workspace-path-input');
-const workspaceSelectBtn = document.getElementById('workspace-select-btn');
 const workspaceRecentSelect = document.getElementById('workspace-recent-select');
+const workspaceRecentOptions = document.getElementById('workspace-recent-options');
+const appChromeToggle = document.getElementById('app-chrome-toggle');
+const topBanner = document.getElementById('top-banner');
+const projectLinkPanel = document.getElementById('project-link-panel');
 const tabButtons = document.querySelectorAll('.tab-btn');
 const tabViews = document.querySelectorAll('.tab-view');
 const approvalBadge = document.getElementById('approval-badge');
@@ -85,6 +154,9 @@ const chatSendBtn = document.getElementById('chat-send-btn');
 const newChatBtn = document.getElementById('new-chat-btn');
 
 // Artifacts Elements
+const conversationArtifactsSection = document.getElementById('conversation-artifacts-section');
+const artifactsListPanel = document.getElementById('artifacts-list-panel');
+const toggleArtifactsBtn = document.getElementById('toggle-artifacts-btn');
 const artifactsListDisplay = document.getElementById('artifacts-list-display');
 const refreshArtifactsBtn = document.getElementById('refresh-artifacts-btn');
 const artifactViewerOverlay = document.getElementById('artifact-viewer-overlay');
@@ -95,9 +167,28 @@ const artifactCloseBtn = document.getElementById('artifact-close-btn');
 // Keypad toggle helpers
 const ctrlBtn = document.querySelector('[data-key="Ctrl"]');
 
+const artifactToggleIcons = {
+    show: `
+        <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+    `,
+    hide: `
+        <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M10.7 5.2A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a17.5 17.5 0 0 1-3.2 4.3"></path>
+            <path d="M6.6 6.6C3.5 8.7 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 4.9-1.3"></path>
+            <path d="m2 2 20 20"></path>
+            <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path>
+            <path d="M14.1 9.9A3 3 0 0 0 12 9"></path>
+        </svg>
+    `
+};
+
 // Initialize Web UI
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
+    initChromeCollapse();
     initTabs();
     initTerminal();
     connectWebSockets();
@@ -141,6 +232,56 @@ function initTabs() {
             }
         });
     });
+}
+
+function initChromeCollapse() {
+    if (!appChromeToggle || !topBanner || !projectLinkPanel) return;
+
+    const savedState = getStoredCollapseState('topControls');
+    const phoneFirstDefault = window.matchMedia && window.matchMedia('(max-width: 700px)').matches;
+    const shouldCollapse = savedState ? savedState === 'collapsed' : phoneFirstDefault;
+
+    setChromeCollapsed(shouldCollapse, false);
+
+    appChromeToggle.addEventListener('click', () => {
+        setChromeCollapsed(!document.body.classList.contains('chrome-collapsed'), true);
+    });
+}
+
+function setChromeCollapsed(collapsed, persist) {
+    document.body.classList.toggle('chrome-collapsed', collapsed);
+    topBanner.hidden = collapsed;
+    projectLinkPanel.hidden = collapsed;
+    appChromeToggle.textContent = collapsed ? '▼' : '▲';
+    appChromeToggle.setAttribute('aria-expanded', String(!collapsed));
+    appChromeToggle.setAttribute('aria-label', `${collapsed ? 'Expand' : 'Collapse'} top controls`);
+
+    if (persist) {
+        try {
+            localStorage.setItem('collapse:topControls', collapsed ? 'collapsed' : 'expanded');
+        } catch (e) {
+            console.warn('Unable to save chrome collapse preference:', e);
+        }
+    }
+
+    scheduleTerminalFit();
+}
+
+function getStoredCollapseState(key) {
+    try {
+        return localStorage.getItem(`collapse:${key}`);
+    } catch (e) {
+        console.warn('Unable to read chrome collapse preference:', e);
+        return null;
+    }
+}
+
+function scheduleTerminalFit() {
+    if (!fitAddon || !document.getElementById('terminal-tab').classList.contains('active')) return;
+
+    setTimeout(() => {
+        fitAddon.fit();
+    }, 50);
 }
 
 const lightTerminalTheme = {
@@ -403,17 +544,57 @@ async function loadRecentWorkspaces() {
             let html = '';
             data.workspaces.forEach(path => {
                 const folderName = path.split('/').pop() || path;
-                html += `<option value="${path}">${escapeHtml(folderName)} (${escapeHtml(path)})</option>`;
+                html += `<option value="${escapeHtml(path)}" label="${escapeHtml(folderName)}"></option>`;
             });
-            workspaceRecentSelect.innerHTML = html || '<option value="">No recent folders</option>';
+            workspaceRecentOptions.innerHTML = html;
             if (activeWorkspacePath) {
                 workspaceRecentSelect.value = activeWorkspacePath;
             }
         }
     } catch (e) {
         console.error('Error loading recent workspaces:', e);
-        workspaceRecentSelect.innerHTML = '<option value="">Failed to load recents</option>';
+        workspaceRecentOptions.innerHTML = '';
     }
+}
+
+async function selectWorkspacePath(path) {
+    const selectedPath = String(path || '').trim();
+    if (!selectedPath) return;
+    if (pendingWorkspacePath === selectedPath) return;
+
+    pendingWorkspacePath = selectedPath;
+    workspaceRecentSelect.disabled = true;
+
+    try {
+        const res = await fetch('/workspace/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: selectedPath })
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            activeWorkspacePath = data.active_workspace;
+            currentFileExplorerPath = '';
+            loadWorkspaceFiles('');
+            await loadRecentWorkspaces();
+        } else {
+            alert(data.message || 'Failed to select workspace.');
+            workspaceRecentSelect.value = activeWorkspacePath;
+        }
+    } catch (e) {
+        console.error(e);
+        alert('Failed to select workspace.');
+        workspaceRecentSelect.value = activeWorkspacePath;
+    } finally {
+        pendingWorkspacePath = '';
+        workspaceRecentSelect.disabled = false;
+    }
+}
+
+function isRecentWorkspacePath(path) {
+    const selectedPath = String(path || '').trim();
+    if (!selectedPath) return false;
+    return Array.from(workspaceRecentOptions.options).some(option => option.value === selectedPath);
 }
 
 async function initWorkspaceSelector() {
@@ -423,7 +604,6 @@ async function initWorkspaceSelector() {
         const wsData = await wsRes.json();
         if (wsData.active_workspace) {
             activeWorkspacePath = wsData.active_workspace;
-            workspacePathInput.value = activeWorkspacePath;
             currentFileExplorerPath = '';
             loadWorkspaceFiles('');
         }
@@ -452,40 +632,20 @@ async function initWorkspaceSelector() {
     workspaceRecentSelect.addEventListener('change', () => {
         const val = workspaceRecentSelect.value;
         if (val) {
-            workspacePathInput.value = val;
-            workspaceSelectBtn.click();
+            selectWorkspacePath(val);
         }
     });
 
-    workspaceSelectBtn.addEventListener('click', async () => {
-        const path = workspacePathInput.value.trim();
-        if (!path) return;
-        
-        workspaceSelectBtn.disabled = true;
-        workspaceSelectBtn.textContent = '...';
-        
-        try {
-            const res = await fetch('/workspace/select', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: path })
-            });
-            const data = await res.json();
-            if (data.status === 'success') {
-                activeWorkspacePath = data.active_workspace;
-                workspacePathInput.value = activeWorkspacePath;
-                currentFileExplorerPath = '';
-                loadWorkspaceFiles('');
-                await loadRecentWorkspaces();
-            } else {
-                alert(data.message || 'Failed to select workspace.');
-            }
-        } catch (e) {
-            console.error(e);
-            alert('Failed to select workspace.');
-        } finally {
-            workspaceSelectBtn.disabled = false;
-            workspaceSelectBtn.textContent = 'Set';
+    workspaceRecentSelect.addEventListener('input', () => {
+        if (isRecentWorkspacePath(workspaceRecentSelect.value)) {
+            selectWorkspacePath(workspaceRecentSelect.value);
+        }
+    });
+
+    workspaceRecentSelect.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            selectWorkspacePath(workspaceRecentSelect.value);
         }
     });
 
@@ -811,7 +971,7 @@ async function loadConversationTranscript(id, forceScroll = false) {
             data.messages.forEach((m) => {
                 const isUser = m.sender === 'user';
                 const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString() : '';
-                const renderedContent = marked.parse(m.content);
+                const renderedContent = renderMarkdownText(m.content);
                 html += `
                     <div class="chat-bubble ${isUser ? 'user' : 'assistant'}">
                         <div class="chat-meta">${isUser ? 'USER' : 'ANTIGRAVITY'} - ${timeStr}</div>
@@ -840,7 +1000,7 @@ async function loadConversationTranscript(id, forceScroll = false) {
 async function loadConversationArtifacts(id) {
     artifactsListDisplay.innerHTML = '<li class="idle-state">Loading artifacts...</li>';
     try {
-        const res = await fetch(`/api/conversation/${id}/artifacts`);
+        const res = await fetch(`/api/conversation/${encodeURIComponent(id)}/artifacts`);
         const data = await res.json();
         if (data.status === 'success' && data.artifacts) {
             if (data.artifacts.length === 0) {
@@ -871,11 +1031,28 @@ async function loadConversationArtifacts(id) {
 }
 
 function initArtifactViewer() {
+    if (toggleArtifactsBtn && artifactsListPanel && conversationArtifactsSection) {
+        setArtifactsCollapsed(true);
+        toggleArtifactsBtn.addEventListener('click', () => {
+            setArtifactsCollapsed(!conversationArtifactsSection.classList.contains('collapsed'));
+        });
+    }
+
     artifactCloseBtn.addEventListener('click', () => {
         artifactViewerOverlay.classList.remove('active');
         currentArtifactName = '';
         currentArtifactLines = [];
     });
+}
+
+function setArtifactsCollapsed(collapsed) {
+    conversationArtifactsSection.classList.toggle('collapsed', collapsed);
+    artifactsListPanel.hidden = collapsed;
+    toggleArtifactsBtn.setAttribute('aria-expanded', String(!collapsed));
+    const label = collapsed ? 'Show artifacts' : 'Hide artifacts';
+    toggleArtifactsBtn.innerHTML = collapsed ? artifactToggleIcons.show : artifactToggleIcons.hide;
+    toggleArtifactsBtn.setAttribute('aria-label', label);
+    toggleArtifactsBtn.setAttribute('title', label);
 }
 
 async function openArtifactViewer(name) {
@@ -885,7 +1062,7 @@ async function openArtifactViewer(name) {
     artifactViewerOverlay.classList.add('active');
     
     try {
-        const res = await fetch(`/api/conversation/${activeConversationId}/artifact/${name}`);
+        const res = await fetch(`/api/conversation/${encodeURIComponent(activeConversationId)}/artifact/${encodeURIComponent(name)}`);
         const data = await res.json();
         if (data.status === 'success') {
             currentArtifactLines = data.content.split('\n');
@@ -916,7 +1093,7 @@ function renderArtifactHtml() {
     });
 
     const markdownText = processedLines.join('\n');
-    const renderedHtml = marked.parse(markdownText);
+    const renderedHtml = renderMarkdownText(markdownText);
     
     artifactRenderedContent.innerHTML = `<div class="markdown-body">${renderedHtml}</div>`;
     
@@ -961,7 +1138,7 @@ async function toggleTaskCheckbox(checkbox) {
     
     const updatedContent = currentArtifactLines.join('\n');
     try {
-        const res = await fetch(`/api/conversation/${activeConversationId}/artifact/${currentArtifactName}/save`, {
+        const res = await fetch(`/api/conversation/${encodeURIComponent(activeConversationId)}/artifact/${encodeURIComponent(currentArtifactName)}/save`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content: updatedContent })

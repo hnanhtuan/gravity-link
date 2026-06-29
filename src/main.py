@@ -333,9 +333,16 @@ async def api_get_approval_status():
 def safe_brain_join(conv_id: str) -> str:
     brain_dir = os.path.abspath(BRAIN_DIR)
     joined = os.path.abspath(os.path.join(brain_dir, conv_id))
-    if not joined.startswith(brain_dir):
+    if os.path.commonpath([brain_dir, joined]) != brain_dir:
         raise ValueError("Access denied")
     return joined
+
+def safe_artifact_path(conv_dir: str, name: str) -> str:
+    conv_dir = os.path.abspath(conv_dir)
+    artifact_path = os.path.abspath(os.path.join(conv_dir, name))
+    if os.path.commonpath([conv_dir, artifact_path]) != conv_dir or not name.endswith(".md"):
+        raise ValueError("Access denied")
+    return artifact_path
 
 # Conversation & Artifact APIs
 @app.get("/api/conversations")
@@ -457,26 +464,29 @@ async def api_get_conversation_artifacts(conv_id: str):
             return {"status": "error", "message": "Conversation not found"}
         
         artifacts = []
-        for name in sorted(os.listdir(conv_dir)):
-            if name.endswith(".md"):
-                full_path = os.path.join(conv_dir, name)
+        for root, dirs, files in os.walk(conv_dir):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for name in sorted(files):
+                if not name.endswith(".md"):
+                    continue
+                full_path = os.path.join(root, name)
+                rel_path = os.path.relpath(full_path, conv_dir).replace(os.sep, "/")
                 artifacts.append({
-                    "name": name,
+                    "name": rel_path,
                     "size": os.path.getsize(full_path),
                     "mtime": os.path.getmtime(full_path)
                 })
+        artifacts.sort(key=lambda item: item["name"])
         return {"status": "success", "artifacts": artifacts}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.get("/api/conversation/{conv_id}/artifact/{name}")
+@app.get("/api/conversation/{conv_id}/artifact/{name:path}")
 async def api_get_conversation_artifact(conv_id: str, name: str):
     """Retrieves raw content of a conversation artifact."""
     try:
         conv_dir = safe_brain_join(conv_id)
-        artifact_path = os.path.abspath(os.path.join(conv_dir, name))
-        if not artifact_path.startswith(conv_dir) or not name.endswith(".md"):
-            return {"status": "error", "message": "Access denied"}
+        artifact_path = safe_artifact_path(conv_dir, name)
         
         if not os.path.exists(artifact_path):
             return {"status": "error", "message": "Artifact not found"}
@@ -487,14 +497,12 @@ async def api_get_conversation_artifact(conv_id: str, name: str):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-@app.post("/api/conversation/{conv_id}/artifact/{name}/save")
+@app.post("/api/conversation/{conv_id}/artifact/{name:path}/save")
 async def api_post_conversation_artifact_save(conv_id: str, name: str, request: ArtifactSaveRequest):
     """Saves updated content of a conversation artifact atomically."""
     try:
         conv_dir = safe_brain_join(conv_id)
-        artifact_path = os.path.abspath(os.path.join(conv_dir, name))
-        if not artifact_path.startswith(conv_dir) or not name.endswith(".md"):
-            return {"status": "error", "message": "Access denied"}
+        artifact_path = safe_artifact_path(conv_dir, name)
         
         temp_path = f"{artifact_path}.tmp"
         os.makedirs(os.path.dirname(artifact_path), exist_ok=True)

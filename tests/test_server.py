@@ -332,6 +332,12 @@ async def test_conversation_and_artifact_apis():
         artifact_path = os.path.join(conv_dir, "task.md")
         with open(artifact_path, "w", encoding="utf-8") as f:
             f.write("- [ ] Task 1\n- [x] Task 2\n")
+
+        nested_artifact_dir = os.path.join(conv_dir, "browser")
+        os.makedirs(nested_artifact_dir, exist_ok=True)
+        nested_artifact_path = os.path.join(nested_artifact_dir, "scratchpad_qkzc6ojb.md")
+        with open(nested_artifact_path, "w", encoding="utf-8") as f:
+            f.write("# Scratchpad\nNested Antigravity artifact\n")
             
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             # 2. Get conversations
@@ -362,13 +368,18 @@ async def test_conversation_and_artifact_apis():
             response = await ac.get(f"/api/conversation/{conv_id}/artifacts")
             assert response.status_code == 200
             artifacts_data = response.json()
-            assert len(artifacts_data["artifacts"]) == 1
-            assert artifacts_data["artifacts"][0]["name"] == "task.md"
+            assert len(artifacts_data["artifacts"]) == 2
+            artifact_names = [artifact["name"] for artifact in artifacts_data["artifacts"]]
+            assert artifact_names == ["browser/scratchpad_qkzc6ojb.md", "task.md"]
             
             # 6. Get artifact content
             response = await ac.get(f"/api/conversation/{conv_id}/artifact/task.md")
             assert response.status_code == 200
             assert response.json()["content"] == "- [ ] Task 1\n- [x] Task 2\n"
+
+            response = await ac.get(f"/api/conversation/{conv_id}/artifact/browser%2Fscratchpad_qkzc6ojb.md")
+            assert response.status_code == 200
+            assert response.json()["content"] == "# Scratchpad\nNested Antigravity artifact\n"
             
             # 7. Save artifact content
             response = await ac.post(f"/api/conversation/{conv_id}/artifact/task.md/save", json={"content": "- [x] Task 1\n- [x] Task 2\n"})
@@ -378,6 +389,15 @@ async def test_conversation_and_artifact_apis():
             # Verify saved content on disk
             with open(artifact_path, "r", encoding="utf-8") as f:
                 assert f.read() == "- [x] Task 1\n- [x] Task 2\n"
+
+            response = await ac.post(
+                f"/api/conversation/{conv_id}/artifact/browser%2Fscratchpad_qkzc6ojb.md/save",
+                json={"content": "# Scratchpad\nUpdated nested artifact\n"}
+            )
+            assert response.status_code == 200
+            assert response.json()["status"] == "success"
+            with open(nested_artifact_path, "r", encoding="utf-8") as f:
+                assert f.read() == "# Scratchpad\nUpdated nested artifact\n"
 
             # 7.5 Send user message
             response = await ac.post(f"/api/conversation/{conv_id}/message", json={"content": "New User Question"})
@@ -394,6 +414,11 @@ async def test_conversation_and_artifact_apis():
             # 8. Path traversal check on artifacts (fails to route, returns 404)
             response = await ac.get(f"/api/conversation/{conv_id}/artifact/../../etc/passwd")
             assert response.status_code == 404
+
+            response = await ac.get(f"/api/conversation/{conv_id}/artifact/..%2F..%2Fetc%2Fpasswd")
+            assert response.status_code == 200
+            assert response.json()["status"] == "error"
+            assert "Access denied" in response.json()["message"]
 
 
 @pytest.mark.asyncio
