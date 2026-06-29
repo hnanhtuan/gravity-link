@@ -485,3 +485,63 @@ async def test_approval_reset_api():
         # Verify it is idle
         res = await ac.get("/approval/pending")
         assert res.json()["status"] == "idle"
+
+
+@pytest.mark.asyncio
+async def test_accept_changes_api(tmp_path):
+    """Verify that POST /api/workspace/accept-changes stages and commits changes if git repo, otherwise returns error."""
+    import subprocess
+    workspace_path = str(tmp_path)
+    
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # 1. Select the temporary directory as the workspace
+        response = await ac.post("/workspace/select", json={"path": workspace_path})
+        assert response.status_code == 200
+        
+        # 2. Try to accept changes (should fail because it's not a git repository)
+        response = await ac.post("/api/workspace/accept-changes")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "error"
+        assert "not a Git repository" in data["message"]
+        
+        # 3. Initialize git repository in the workspace path
+        subprocess.run(["git", "init"], cwd=workspace_path, check=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=workspace_path, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=workspace_path, check=True)
+        
+        # Create .gitignore to ignore gravity link state files
+        gitignore_path = os.path.join(workspace_path, ".gitignore")
+        with open(gitignore_path, "w") as f:
+            f.write(".gravity_link\n")
+        subprocess.run(["git", "add", ".gitignore"], cwd=workspace_path, check=True)
+        subprocess.run(["git", "commit", "-m", "Add gitignore"], cwd=workspace_path, check=True)
+        
+        # 4. Try to accept changes on empty/ignored repo (should report success with "No changes to accept.")
+        response = await ac.post("/api/workspace/accept-changes")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert "No changes to accept" in data["message"]
+
+        
+        # 5. Create a new file in the workspace
+        test_file = os.path.join(workspace_path, "change.txt")
+        with open(test_file, "w") as f:
+            f.write("Some changes from agent")
+            
+        # 6. Accept changes (should stage and commit)
+        response = await ac.post("/api/workspace/accept-changes")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert "Successfully accepted" in data["message"]
+        
+        # 7. Check git status to ensure working directory is clean
+        status_proc = subprocess.run(["git", "status", "--porcelain"], cwd=workspace_path, capture_output=True, text=True, check=True)
+        assert status_proc.stdout.strip() == ""
+        
+        # 8. Check git log to see the commit exists
+        log_proc = subprocess.run(["git", "log", "-1", "--oneline"], cwd=workspace_path, capture_output=True, text=True, check=True)
+        assert "Accept agent changes" in log_proc.stdout
+

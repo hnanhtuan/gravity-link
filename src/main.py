@@ -287,7 +287,6 @@ async def api_select_workspace(request: WorkspaceSelectRequest):
     
     await state_manager_ws.broadcast(json.dumps({"file": "workspace_state.json", "data": current_state}))
     await state_manager_ws.broadcast(json.dumps({"file": "pending_approval.json", "data": current_approval}))
-    
     return {
         "status": "success",
         "active_workspace": path,
@@ -295,7 +294,67 @@ async def api_select_workspace(request: WorkspaceSelectRequest):
         "approval_file": state_manager.APPROVAL_FILE
     }
 
+@app.post("/api/workspace/accept-changes")
+async def api_workspace_accept_changes():
+    """Runs git commands to accept (stage and commit) all changes in the active workspace."""
+    try:
+        workspace_dir = state_manager.active_workspace_dir
+        if not os.path.exists(workspace_dir):
+            return {"status": "error", "message": "Active workspace directory does not exist."}
+
+        # Check if it is a git repository
+        git_dir = os.path.join(workspace_dir, ".git")
+        if not os.path.exists(git_dir):
+            return {"status": "error", "message": "Active workspace is not a Git repository. Cannot accept changes."}
+
+        # 1. Run git status --porcelain to see if there are any changes
+        proc_status = await asyncio.create_subprocess_exec(
+            "git", "status", "--porcelain",
+            cwd=workspace_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout_status, stderr_status = await proc_status.communicate()
+        if proc_status.returncode != 0:
+            err_msg = stderr_status.decode().strip()
+            return {"status": "error", "message": f"Git status failed: {err_msg}"}
+
+        changes = stdout_status.decode().strip()
+        if not changes:
+            return {"status": "success", "message": "No changes to accept."}
+
+        # 2. Stage all changes
+        proc_add = await asyncio.create_subprocess_exec(
+            "git", "add", "-A",
+            cwd=workspace_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout_add, stderr_add = await proc_add.communicate()
+        if proc_add.returncode != 0:
+            err_msg = stderr_add.decode().strip()
+            return {"status": "error", "message": f"Git add failed: {err_msg}"}
+
+        # 3. Commit changes (overriding author info to ensure success)
+        proc_commit = await asyncio.create_subprocess_exec(
+            "git", "-c", "user.name=Gravity Link Agent", "-c", "user.email=agent@gravitylink.local",
+            "commit", "-m", "Accept agent changes",
+            cwd=workspace_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout_commit, stderr_commit = await proc_commit.communicate()
+        if proc_commit.returncode != 0:
+            err_msg = stderr_commit.decode().strip()
+            return {"status": "error", "message": f"Git commit failed: {err_msg}"}
+
+        return {"status": "success", "message": "Successfully accepted and committed all changes."}
+    except Exception as e:
+        logger.exception("Exception in api_workspace_accept_changes")
+        return {"status": "error", "message": str(e)}
+
 # Agent REST API Communication Channel
+
 @app.post("/state")
 async def api_post_state(state_data: Dict[str, Any]):
     """Enables agents running in external workspaces to update their state via REST API."""

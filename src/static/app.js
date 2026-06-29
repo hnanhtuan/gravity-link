@@ -137,6 +137,7 @@ const wsStatusText = document.getElementById('ws-status-text');
 const terminalContainer = document.getElementById('terminal-container');
 const workspaceRecentSelect = document.getElementById('workspace-recent-select');
 const workspaceRecentOptions = document.getElementById('workspace-recent-options');
+const acceptChangesBtn = document.getElementById('accept-changes-btn');
 const appChromeToggle = document.getElementById('app-chrome-toggle');
 const topBanner = document.getElementById('top-banner');
 const projectLinkPanel = document.getElementById('project-link-panel');
@@ -799,6 +800,32 @@ async function initWorkspaceSelector() {
         }
     });
 
+    if (acceptChangesBtn) {
+        acceptChangesBtn.addEventListener('click', async () => {
+            acceptChangesBtn.disabled = true;
+            acceptChangesBtn.textContent = 'Accepting...';
+            try {
+                const res = await fetch('/api/workspace/accept-changes', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    showToast(data.message, 'success');
+                    // Refresh file explorer if we have a current path
+                    if (typeof loadWorkspaceFiles === 'function') {
+                        loadWorkspaceFiles(currentFileExplorerPath || '');
+                    }
+                } else {
+                    showToast(data.message || 'Failed to accept changes.', 'error');
+                }
+            } catch (e) {
+                console.error('Error accepting changes:', e);
+                showToast('Failed to accept changes.', 'error');
+            } finally {
+                acceptChangesBtn.disabled = false;
+                acceptChangesBtn.textContent = 'Accept Changes';
+            }
+        });
+    }
+
     // Handle refresh buttons
     if (refreshStateBtn) {
         refreshStateBtn.addEventListener('click', async () => {
@@ -1380,4 +1407,44 @@ function updateHljsTheme(isLight) {
             hljsThemeLink.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';
         }
     }
+}
+
+function showToast(message, type = 'info', duration = 3000) {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    const textSpan = document.createElement('span');
+    textSpan.textContent = message;
+    toast.appendChild(textSpan);
+    
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'toast-close';
+    closeBtn.innerHTML = '&times;';
+    closeBtn.onclick = () => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    };
+    toast.appendChild(closeBtn);
+    
+    container.appendChild(toast);
+    
+    // Trigger transition
+    setTimeout(() => {
+        toast.classList.add('show');
+    }, 10);
+    
+    // Auto-remove
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    }, duration);
 }
